@@ -4,6 +4,7 @@ import { envSchema } from './config/env.schema.js';
 import { AuditModule } from './modules/audit/index.js';
 import { IdentityModule } from './modules/identity/index.js';
 import { HealthModule } from './shared/health/health.module.js';
+import { RateLimitModule } from './shared/http/rate-limit.js';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { HealthModule } from './shared/health/health.module.js';
       envFilePath: '../../.env',
       validationSchema: envSchema,
     }),
+    RateLimitModule,
     HealthModule,
     AuditModule,
     IdentityModule,

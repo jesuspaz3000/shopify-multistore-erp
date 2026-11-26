@@ -1,11 +1,20 @@
 import { Body, Controller, Get, HttpCode, Post, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { type LoginInput, loginSchema, type MeResponse, type RegisterInput, registerSchema } from '@erp/contracts';
+import { Throttle } from '@nestjs/throttler';
+import {
+  type AuthConfigResponse,
+  type LoginInput,
+  loginSchema,
+  type MeResponse,
+  type RegisterInput,
+  registerSchema,
+} from '@erp/contracts';
 import type { Response } from 'express';
 import type { Env } from '../../../config/env.schema.js';
 import { CurrentAuth, ReqMeta } from '../../../shared/http/current-auth.decorator.js';
 import { Public } from '../../../shared/http/public.decorator.js';
+import { AUTH_LIMITS } from '../../../shared/http/rate-limit.js';
 import type { AuthContext, RequestMeta } from '../../../shared/http/request-context.js';
 import { AuthService } from './auth.service.js';
 import { clearSessionCookie, setSessionCookie } from './session-cookie.js';
@@ -23,8 +32,16 @@ export class AuthController {
   }
 
   @Public()
+  @Get('config')
+  @ApiOperation({ summary: 'Opciones de inicio de sesión disponibles (registro público, Google)' })
+  getConfig(): AuthConfigResponse {
+    return this.auth.getConfig();
+  }
+
+  @Public()
   @Post('register')
-  @ApiOperation({ summary: 'Registrar una empresa nueva y su usuario dueño (inicia sesión)' })
+  @Throttle({ default: AUTH_LIMITS.register })
+  @ApiOperation({ summary: 'Registrar una empresa nueva y su dueño (solo si ALLOW_SIGNUP=true)' })
   async register(
     @Body({ schema: registerSchema }) body: RegisterInput,
     @ReqMeta() meta: RequestMeta,
@@ -38,6 +55,7 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(200)
+  @Throttle({ default: AUTH_LIMITS.login })
   @ApiOperation({ summary: 'Iniciar sesión con email y contraseña' })
   async login(
     @Body({ schema: loginSchema }) body: LoginInput,

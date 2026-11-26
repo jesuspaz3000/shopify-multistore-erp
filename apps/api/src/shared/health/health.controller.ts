@@ -1,11 +1,13 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import type pg from 'pg';
 import { PG_POOL } from '../database/database.module.js';
 import { Public } from '../http/public.decorator.js';
 
 @ApiTags('health')
 @Public()
+@SkipThrottle() // los chequeos del orquestador no deben consumir el límite
 @Controller()
 export class HealthController {
   constructor(@Inject(PG_POOL) private readonly pool: pg.Pool) {}

@@ -11,8 +11,13 @@ export const envSchema = z.object({
 
   DATABASE_URL: z.string().min(1),
 
-  // Registro público de nuevas empresas (dueños). Los empleados entran por invitación.
-  ALLOW_SIGNUP: z.stringbool().default(true),
+  // Registro PÚBLICO de nuevas empresas. false (por defecto): administración privada; las empresas
+  // las crea el superadmin con `npm run tenant:create` y los empleados entran por invitación.
+  ALLOW_SIGNUP: z.stringbool().default(false),
+
+  // Login con Google: se habilita solo si ambas credenciales están definidas.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
 
   // Duración de la sesión (días). Se renueva con el uso (sliding expiration).
   SESSION_TTL_DAYS: z.coerce.number().int().positive().default(7),

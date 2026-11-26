@@ -4,17 +4,16 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
-  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { LoginInput, MeResponse, RegisterInput } from '@erp/contracts';
+import type { AuthConfigResponse, LoginInput, MeResponse, RegisterInput } from '@erp/contracts';
 import type { Env } from '../../../config/env.schema.js';
 import { isUniqueViolation } from '../../../shared/database/pg-errors.js';
 import type { AuthContext, RequestMeta } from '../../../shared/http/request-context.js';
 import { AuditService } from '../../audit/audit.service.js';
 import { IdentityRepository } from '../identity.repository.js';
-import { nextAvailableSlug, slugify } from '../slug.js';
+import { TenantProvisioningService } from '../tenant-provisioning.service.js';
 import { isLocked, lockUntilFor } from './login-throttle.js';
 import { PasswordService } from './password.service.js';
 import { SessionsService } from './sessions.service.js';
@@ -30,8 +29,17 @@ export class AuthService {
     private readonly passwords: PasswordService,
     private readonly sessions: SessionsService,
     private readonly audit: AuditService,
+    private readonly provisioning: TenantProvisioningService,
     private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /** Opciones de login disponibles (pública): el frontend oculta lo que no esté habilitado. */
+  getConfig(): AuthConfigResponse {
+    return {
+      signupEnabled: this.config.get('ALLOW_SIGNUP', { infer: true }),
+      googleEnabled: !!(this.config.get('GOOGLE_CLIENT_ID', { infer: true }) && this.config.get('GOOGLE_CLIENT_SECRET', { infer: true })),
+    };
+  }
 
   /** Alta de una empresa nueva: crea tenant + usuario dueño (OWNER) + sesión, en una transacción. */
   async register(input: RegisterInput, meta: RequestMeta): Promise<IssuedSession> {
@@ -48,33 +56,21 @@ export class AuthService {
           throw new ConflictException('Ya existe una cuenta con ese email');
         }
 
-        const ownerRoleId = await this.repo.findGlobalRoleId('OWNER', tx);
-        if (!ownerRoleId) throw new InternalServerErrorException('Roles globales no inicializados');
-
         const user = await this.repo.insertUser(
           { email: input.email, passwordHash, firstName: input.firstName, lastName: input.lastName, lastLoginAt: new Date() },
           tx,
         );
-
-        const base = slugify(input.companyName);
-        const slug = nextAvailableSlug(base, await this.repo.takenSlugs(base, tx));
-        const tenant = await this.repo.insertTenant({ slug, companyName: input.companyName, billingEmail: input.email }, tx);
-
-        await this.repo.insertMembership({ tenantId: tenant.id, userId: user.id, roleId: ownerRoleId }, tx);
-        const session = await this.sessions.create(user.id, 'PASSWORD', meta, tx);
-
-        await this.audit.record(
+        await this.provisioning.createTenantWithOwner(
           {
-            tenantId: tenant.id,
-            userId: user.id,
+            companyName: input.companyName,
+            billingEmail: input.email,
+            ownerUserId: user.id,
             source: 'ERP_USER',
-            entityType: 'Tenant',
-            entityId: tenant.id,
-            action: 'REGISTER',
             ipAddress: meta.ipAddress,
           },
           tx,
         );
+        const session = await this.sessions.create(user.id, 'PASSWORD', meta, tx);
         return { userId: user.id, session };
       });
 

@@ -9,6 +9,7 @@ import { AppModule } from './../src/app.module.js';
 import { auditLogs } from './../src/modules/audit/audit.schema.js';
 import { tenants, tenantUsers, users } from './../src/modules/identity/identity.schema.js';
 import { DB, type Database } from './../src/shared/database/database.module.js';
+import { AUTH_LIMITS } from './../src/shared/http/rate-limit.js';
 
 // Requiere PostgreSQL en marcha (npm run db:up) con las migraciones aplicadas.
 describe('API (e2e)', () => {
@@ -57,6 +58,13 @@ describe('API (e2e)', () => {
     return request(app.getHttpServer()).post('/auth/login').send({ email: 'no-es-email' }).expect(400);
   });
 
+  it('GET /auth/config es público e informa el registro', () => {
+    return request(app.getHttpServer())
+      .get('/auth/config')
+      .expect(200)
+      .expect({ signupEnabled: true, googleEnabled: false });
+  });
+
   it('registro -> me -> logout -> me (401)', async () => {
     const agent = request.agent(app.getHttpServer());
     const email = `e2e-${Date.now()}@example.com`;
@@ -71,5 +79,22 @@ describe('API (e2e)', () => {
     await agent.get('/auth/me').expect(200);
     await agent.post('/auth/logout').expect(204);
     await agent.get('/auth/me').expect(401);
+  });
+
+  // Debe ir AL FINAL: agota el límite de login de esta IP para el resto del archivo.
+  it('POST /auth/login responde 429 al superar el límite por IP', async () => {
+    // Otros tests ya consumieron parte del límite: se envían intentos hasta recibir 429.
+    const server = app.getHttpServer();
+    const statuses: number[] = [];
+    for (let i = 0; i <= AUTH_LIMITS.login.limit; i++) {
+      const res = await request(server).post('/auth/login').send({ email: 'nadie@example.com', password: 'x' });
+      statuses.push(res.status);
+      if (res.status === 429) break;
+    }
+    expect(statuses.at(-1)).toBe(429);
+    expect(statuses.slice(0, -1).every((s) => s === 401)).toBe(true);
+
+    // Cualquier otra ruta sigue respondiendo: el límite estricto es solo para el login.
+    await request(server).get('/health').expect(200);
   });
 });

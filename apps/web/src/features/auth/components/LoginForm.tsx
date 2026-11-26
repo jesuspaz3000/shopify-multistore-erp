@@ -7,12 +7,12 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useRouter } from 'next/navigation';
-import TextLink from '@/components/ui/TextLink';
 import { login } from '../api/auth.api';
 import { useZodForm } from '../hooks/useZodForm';
 import GoogleSignInButton from './GoogleSignInButton';
 
-export default function LoginForm() {
+/** `footer`: contenido opcional bajo el formulario (ej. enlace de registro si está habilitado). */
+export default function LoginForm({ footer }: { footer?: React.ReactNode }) {
   const router = useRouter();
   const { values, setField, fieldErrors, formError, submitting, handleSubmit } = useZodForm(
     loginSchema,
@@ -65,10 +65,7 @@ export default function LoginForm() {
 
       <GoogleSignInButton />
 
-      <Typography variant="body2" sx={{ textAlign: 'center', color: 'text.secondary' }}>
-        ¿Tu empresa aún no tiene cuenta?{' '}
-        <TextLink href="/register">Crear cuenta</TextLink>
-      </Typography>
+      {footer}
     </Stack>
   );
 }

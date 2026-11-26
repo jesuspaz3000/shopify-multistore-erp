@@ -26,6 +26,7 @@
     "db:generate": "npm run db:generate -w @erp/api",
     "db:migrate": "npm run db:migrate -w @erp/api",
     "db:studio": "npm run db:studio -w @erp/api",
-    "superadmin:create": "npm run contracts:build && npm run superadmin:create -w @erp/api --"
+    "superadmin:create": "npm run contracts:build && npm run build -w @erp/api && node --env-file-if-exists=.env apps/api/dist/scripts/create-superadmin.js",
+    "tenant:create": "npm run contracts:build && npm run build -w @erp/api && node --env-file-if-exists=.env apps/api/dist/scripts/create-tenant.js"
   }
 }

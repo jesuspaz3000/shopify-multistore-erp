@@ -51,6 +51,12 @@ export type TenantMembership = {
   allShopsAccess: boolean;
 };
 
+/** Opciones de inicio de sesión disponibles (pública: la usa la pantalla de login). */
+export type AuthConfigResponse = {
+  signupEnabled: boolean;
+  googleEnabled: boolean;
+};
+
 export type MeResponse = {
   user: SessionUser;
   memberships: TenantMembership[];

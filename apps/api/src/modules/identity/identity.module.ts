@@ -8,6 +8,7 @@ import { PasswordService } from './auth/password.service.js';
 import { SessionGuard } from './auth/session.guard.js';
 import { SessionsService } from './auth/sessions.service.js';
 import { IdentityRepository } from './identity.repository.js';
+import { TenantProvisioningService } from './tenant-provisioning.service.js';
 
 @Module({
   imports: [DatabaseModule, AuditModule],
@@ -17,6 +18,7 @@ import { IdentityRepository } from './identity.repository.js';
     PasswordService,
     SessionsService,
     AuthService,
+    TenantProvisioningService,
     // Guard global de sesión: toda la API exige sesión salvo rutas @Public().
     { provide: APP_GUARD, useClass: SessionGuard },
   ],
