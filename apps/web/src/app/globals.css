@@ -1,0 +1,10 @@
+/*
+ * Orden de capas: los estilos de MUI viven en @layer mui (enableCssLayer).
+ * Los estilos propios fuera de capas (o en capas posteriores) pueden sobrescribirlos.
+ */
+@layer mui;
+
+html,
+body {
+  height: 100%;
+}

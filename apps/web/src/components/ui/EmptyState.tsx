@@ -1,0 +1,2 @@
+// Estado vacio reutilizable.
+export {};

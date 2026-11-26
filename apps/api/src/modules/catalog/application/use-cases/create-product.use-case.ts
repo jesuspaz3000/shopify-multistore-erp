@@ -1,0 +1,2 @@
+// Crear producto maestro.
+export {};

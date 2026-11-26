@@ -1,0 +1,25 @@
+{
+  "name": "shopify-erp",
+  "version": "0.0.1",
+  "private": true,
+  "description": "ERP multitenant para administrar varias tiendas Shopify desde un solo dashboard",
+  "engines": {
+    "node": ">=26.13.1",
+    "npm": ">=11.20.0"
+  },
+  "packageManager": "npm@11.20.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run start:dev -w @erp/api",
+    "dev:web": "npm run dev -w @erp/web",
+    "build": "npm run build -w @erp/contracts && npm run build -w @erp/api && npm run build -w @erp/web",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres"
+  }
+}
