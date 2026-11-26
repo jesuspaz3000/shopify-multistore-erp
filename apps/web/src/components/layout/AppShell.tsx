@@ -12,6 +12,7 @@ import { useParams } from 'next/navigation';
 import ColorModeToggle from '@/components/ui/ColorModeToggle';
 import UserMenu from '@/features/auth/components/UserMenu';
 import ShopSwitcher, { ALL_SHOPS } from '@/features/shop-switcher/components/ShopSwitcher';
+import type { ShopOption } from '@/features/shop-switcher/types';
 import { useUiStore } from '@/stores/UiStoreProvider';
 import Sidebar from './Sidebar';
 
@@ -20,11 +21,13 @@ const DRAWER_WIDTH = 248;
 type AppShellProps = {
   me: MeResponse;
   membership: TenantMembership;
+  /** Tiendas visibles para el usuario (selector de tienda). */
+  shops: ShopOption[];
   children: React.ReactNode;
 };
 
 /** Estructura del dashboard: menú lateral + barra superior + contenido. */
-export default function AppShell({ me, membership, children }: AppShellProps) {
+export default function AppShell({ me, membership, shops, children }: AppShellProps) {
   const params = useParams<{ shop?: string }>();
   const shop = params.shop ?? ALL_SHOPS;
   const mobileNavOpen = useUiStore((s) => s.mobileNavOpen);
@@ -54,7 +57,7 @@ export default function AppShell({ me, membership, children }: AppShellProps) {
           <IconButton edge="start" onClick={toggleMobileNav} aria-label="Abrir menú" sx={{ display: { md: 'none' } }}>
             <MenuIcon />
           </IconButton>
-          <ShopSwitcher tenant={membership.slug} shop={shop} shops={[]} />
+          <ShopSwitcher tenant={membership.slug} shop={shop} shops={shops} />
           <Box sx={{ flexGrow: 1 }} />
           <ColorModeToggle />
           <UserMenu user={me.user} companyName={membership.companyName} canSwitchTenant={me.memberships.length > 1} />

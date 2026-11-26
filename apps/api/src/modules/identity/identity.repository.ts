@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { TenantMembership } from '@erp/contracts';
 import { and, asc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import { DB, type Database, type Tx } from '../../shared/database/database.module.js';
+import { tenantUserShops } from '../shops/shops.schema.js';
 import { roles, tenants, tenantUsers, users } from './identity.schema.js';
 
 type Executor = Database | Tx;
@@ -65,6 +66,7 @@ export class IdentityRepository {
         slug: tenants.slug,
         companyName: tenants.companyName,
         role: roles.name,
+        permissions: roles.permissions,
         allShopsAccess: tenantUsers.allShopsAccess,
       })
       .from(tenantUsers)
@@ -72,6 +74,41 @@ export class IdentityRepository {
       .innerJoin(roles, eq(roles.id, tenantUsers.roleId))
       .where(and(eq(tenantUsers.userId, userId), eq(tenantUsers.status, 'active'), eq(tenants.status, 'active')))
       .orderBy(asc(tenants.companyName));
+  }
+
+  /** Membresía activa del usuario en la empresa con ese slug (o undefined). */
+  async findMembershipBySlug(userId: number, slug: string, tx: Executor = this.db) {
+    const [membership] = await tx
+      .select({
+        tenantId: tenants.id,
+        slug: tenants.slug,
+        tenantUserId: tenantUsers.id,
+        role: roles.name,
+        permissions: roles.permissions,
+        allShopsAccess: tenantUsers.allShopsAccess,
+      })
+      .from(tenantUsers)
+      .innerJoin(tenants, eq(tenants.id, tenantUsers.tenantId))
+      .innerJoin(roles, eq(roles.id, tenantUsers.roleId))
+      .where(
+        and(
+          eq(tenantUsers.userId, userId),
+          eq(tenants.slug, slug),
+          eq(tenantUsers.status, 'active'),
+          eq(tenants.status, 'active'),
+        ),
+      )
+      .limit(1);
+    return membership;
+  }
+
+  /** Tiendas permitidas para una membresía con acceso restringido (tenant_users.all_shops_access = false). */
+  async allowedShopIds(tenantUserId: number, tx: Executor = this.db): Promise<number[]> {
+    const rows = await tx
+      .select({ shopId: tenantUserShops.shopId })
+      .from(tenantUserShops)
+      .where(eq(tenantUserShops.tenantUserId, tenantUserId));
+    return rows.map((r) => r.shopId);
   }
 
   /** Suma 1 intento fallido de forma ATÓMICA (seguro ante logins concurrentes). */

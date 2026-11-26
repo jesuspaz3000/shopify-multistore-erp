@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
+import { getTenantShops } from '@/features/shops/api/shops.server';
 
 // [shop] = "all" (vista consolidada) o el handle de una tienda del tenant.
 // La validación de `params` va en un componente dentro de <Suspense> (no con await en el layout):
@@ -16,8 +17,10 @@ export default function ShopLayout({ children, params }: LayoutProps<'/[tenant]/
 }
 
 async function ShopGuard({ params }: { params: LayoutProps<'/[tenant]/[shop]'>['params'] }) {
-  const { shop } = await params;
-  // Por ahora no hay tiendas conectadas: solo "all" es válido.
-  if (shop !== 'all') notFound();
+  const { tenant, shop } = await params;
+  if (shop === 'all') return null;
+  // Solo tiendas de la empresa visibles para el usuario (la API ya filtra por permisos).
+  const shops = await getTenantShops(tenant);
+  if (!shops.some((s) => s.handle === shop)) notFound();
   return null;
 }

@@ -48,6 +48,8 @@ export type TenantMembership = {
   slug: string;
   companyName: string;
   role: string;
+  /** Permisos del rol en esta empresa ('*' = todos). */
+  permissions: string[];
   allShopsAccess: boolean;
 };
 

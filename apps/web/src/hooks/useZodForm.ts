@@ -8,7 +8,7 @@ import { ApiError } from '@/lib/http';
  * Manejo mínimo de formularios con un esquema Zod compartido (@erp/contracts):
  * valida en el cliente, envía y muestra los errores de la API por campo o generales.
  */
-export function useZodForm<TInput extends Record<string, string>, TOutput>(
+export function useZodForm<TInput extends Record<string, string | undefined>, TOutput>(
   schema: z.ZodType<TOutput, TInput>,
   initial: TInput,
   onValid: (values: TOutput) => Promise<void>,
@@ -32,14 +32,19 @@ export function useZodForm<TInput extends Record<string, string>, TOutput>(
     };
   }, []);
 
-  const setField = (name: keyof TInput & string) => (event: React.ChangeEvent<HTMLInputElement>) => {
-    setValues((prev) => ({ ...prev, [name]: event.target.value }));
+  /** Asigna el valor de un campo (para selectores/autocompletar) y limpia su error. */
+  const setValue = (name: keyof TInput & string, value: string) => {
+    setValues((prev) => ({ ...prev, [name]: value }));
     setFieldErrors((prev) => {
       const next = { ...prev };
       delete next[name];
       return next;
     });
   };
+
+  /** onChange para TextField (también TextField select). */
+  const setField = (name: keyof TInput & string) => (event: React.ChangeEvent<HTMLInputElement>) =>
+    setValue(name, event.target.value);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -67,5 +72,5 @@ export function useZodForm<TInput extends Record<string, string>, TOutput>(
     }
   };
 
-  return { values, setField, fieldErrors, formError, submitting, handleSubmit };
+  return { values, setField, setValue, fieldErrors, formError, submitting, handleSubmit };
 }

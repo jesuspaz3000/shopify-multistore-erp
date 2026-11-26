@@ -9,7 +9,7 @@ import Typography from '@mui/material/Typography';
 import { useRouter } from 'next/navigation';
 import TextLink from '@/components/ui/TextLink';
 import { register } from '../api/auth.api';
-import { useZodForm } from '../hooks/useZodForm';
+import { useZodForm } from '@/hooks/useZodForm';
 
 export default function RegisterForm() {
   const router = useRouter();

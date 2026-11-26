@@ -4,7 +4,7 @@ import StorefrontIcon from '@mui/icons-material/Storefront';
 import ListSubheader from '@mui/material/ListSubheader';
 import MenuItem from '@mui/material/MenuItem';
 import Select, { type SelectChangeEvent } from '@mui/material/Select';
-import { usePathname, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter } from 'next/navigation';
 import type { ShopOption } from '../types';
 
 export const ALL_SHOPS = 'all';
@@ -16,9 +16,11 @@ export const ALL_SHOPS = 'all';
 export default function ShopSwitcher({ tenant, shop, shops }: { tenant: string; shop: string; shops: ShopOption[] }) {
   const router = useRouter();
   const pathname = usePathname();
+  // Fuera de una vista por tienda (ej. Configuración) se va al resumen de la tienda elegida.
+  const inShopRoute = !!useParams<{ shop?: string }>().shop;
 
   const handleChange = (event: SelectChangeEvent) => {
-    const rest = pathname.split('/').slice(3).join('/');
+    const rest = inShopRoute ? pathname.split('/').slice(3).join('/') : '';
     router.push(`/${tenant}/${event.target.value}${rest ? `/${rest}` : ''}`);
   };
 

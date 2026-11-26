@@ -10,16 +10,25 @@ import CardContent from '@mui/material/CardContent';
 import Grid from '@mui/material/Grid';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
+import TextLink from '@/components/ui/TextLink';
 
-// Indicadores del resumen. Los valores reales llegarán con los módulos de tiendas, catálogo y órdenes.
-const STATS = [
-  { label: 'Tiendas conectadas', value: '0', icon: StorefrontIcon },
-  { label: 'Productos', value: '0', icon: SellIcon },
-  { label: 'Órdenes del mes', value: '0', icon: ReceiptLongIcon },
-  { label: 'Bodegas', value: '0', icon: WarehouseIcon },
-];
+type Props = {
+  tenant: string;
+  firstName: string;
+  shopsCount: number;
+  /** "Vista consolidada..." o "Tienda X". */
+  scopeLabel: string;
+};
 
-export default function OverviewPanel({ firstName }: { firstName: string }) {
+export default function OverviewPanel({ tenant, firstName, shopsCount, scopeLabel }: Props) {
+  // Productos, órdenes y bodegas llegarán con sus módulos.
+  const stats = [
+    { label: 'Tiendas', value: shopsCount, icon: StorefrontIcon },
+    { label: 'Productos', value: 0, icon: SellIcon },
+    { label: 'Órdenes del mes', value: 0, icon: ReceiptLongIcon },
+    { label: 'Bodegas', value: 0, icon: WarehouseIcon },
+  ];
+
   return (
     <Stack spacing={3}>
       <Box>
@@ -27,12 +36,12 @@ export default function OverviewPanel({ firstName }: { firstName: string }) {
           Hola, {firstName}
         </Typography>
         <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-          Vista consolidada de todas tus tiendas.
+          {scopeLabel}
         </Typography>
       </Box>
 
       <Grid container spacing={2}>
-        {STATS.map(({ label, value, icon: Icon }) => (
+        {stats.map(({ label, value, icon: Icon }) => (
           <Grid key={label} size={{ xs: 12, sm: 6, lg: 3 }}>
             <Card variant="outlined">
               <CardContent>
@@ -53,11 +62,18 @@ export default function OverviewPanel({ firstName }: { firstName: string }) {
         ))}
       </Grid>
 
-      <Alert severity="info" variant="outlined">
-        <AlertTitle>Próximo paso</AlertTitle>
-        Conecta tu primera tienda Shopify para empezar a sincronizar productos, inventario y órdenes. (Disponible
-        cuando se configure la app en Shopify.)
-      </Alert>
+      {shopsCount === 0 ? (
+        <Alert severity="info" variant="outlined">
+          <AlertTitle>Primer paso</AlertTitle>
+          Agrega tus tiendas en <TextLink href={`/${tenant}/settings/shops`}>Configuración → Tiendas</TextLink>.
+        </Alert>
+      ) : (
+        <Alert severity="info" variant="outlined">
+          <AlertTitle>Próximo paso</AlertTitle>
+          Conectar las tiendas con Shopify para sincronizar productos, inventario y órdenes (disponible cuando se
+          configure la app en Shopify).
+        </Alert>
+      )}
     </Stack>
   );
 }

@@ -1,4 +1,4 @@
-import { boolean, index, integer, pgTable, primaryKey, text, varchar } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, pgTable, primaryKey, text, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import { fk, id, timestamps, tsz } from '../../shared/database/columns.js';
 import { roles, tenants, tenantUsers } from '../identity/identity.schema.js';
 
@@ -41,7 +41,7 @@ export const shops = pgTable(
   },
   (t) => [
     index('shops_tenant_status_idx').on(t.tenantId, t.status),
-    index('shops_tenant_handle_idx').on(t.tenantId, t.handle),
+    uniqueIndex('shops_tenant_handle_uq').on(t.tenantId, t.handle), // handle único por empresa (va en la URL)
   ],
 );
 

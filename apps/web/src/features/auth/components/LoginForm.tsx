@@ -8,7 +8,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useRouter } from 'next/navigation';
 import { login } from '../api/auth.api';
-import { useZodForm } from '../hooks/useZodForm';
+import { useZodForm } from '@/hooks/useZodForm';
 import GoogleSignInButton from './GoogleSignInButton';
 
 /** `footer`: contenido opcional bajo el formulario (ej. enlace de registro si está habilitado). */

@@ -1,2 +1,68 @@
-// Repositorio ORM de tiendas conectadas (shops, estado de instalacion).
-export {};
+import { Inject, Injectable } from '@nestjs/common';
+import { and, asc, eq, inArray, like, or } from 'drizzle-orm';
+import { DB, type Database, type Tx } from '../../shared/database/database.module.js';
+import { shops } from './shops.schema.js';
+
+type Executor = Database | Tx;
+export type ShopRow = typeof shops.$inferSelect;
+
+@Injectable()
+export class ShopsRepository {
+  constructor(@Inject(DB) private readonly db: Database) {}
+
+  transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+    return this.db.transaction(fn);
+  }
+
+  /** Tiendas de la empresa; `onlyIds` restringe a las permitidas al usuario (null = todas). */
+  list(tenantId: number, onlyIds: number[] | null, tx: Executor = this.db): Promise<ShopRow[]> {
+    const filters = [eq(shops.tenantId, tenantId)];
+    if (onlyIds) filters.push(inArray(shops.id, onlyIds.length > 0 ? onlyIds : [-1]));
+    return tx
+      .select()
+      .from(shops)
+      .where(and(...filters))
+      .orderBy(asc(shops.name));
+  }
+
+  async findById(tenantId: number, shopId: number, tx: Executor = this.db): Promise<ShopRow | undefined> {
+    const [shop] = await tx
+      .select()
+      .from(shops)
+      .where(and(eq(shops.tenantId, tenantId), eq(shops.id, shopId)))
+      .limit(1);
+    return shop;
+  }
+
+  /** Handles ocupados en la empresa que empiezan como `base`. */
+  async takenHandles(tenantId: number, base: string, tx: Executor = this.db): Promise<Set<string>> {
+    const rows = await tx
+      .select({ handle: shops.handle })
+      .from(shops)
+      .where(and(eq(shops.tenantId, tenantId), or(eq(shops.handle, base), like(shops.handle, `${base}-%`))));
+    return new Set(rows.map((r) => r.handle));
+  }
+
+  async insert(values: typeof shops.$inferInsert, tx: Executor = this.db): Promise<ShopRow> {
+    const [shop] = await tx.insert(shops).values(values).returning();
+    return shop;
+  }
+
+  async update(
+    tenantId: number,
+    shopId: number,
+    values: Partial<typeof shops.$inferInsert>,
+    tx: Executor = this.db,
+  ): Promise<ShopRow | undefined> {
+    const [shop] = await tx
+      .update(shops)
+      .set(values)
+      .where(and(eq(shops.tenantId, tenantId), eq(shops.id, shopId)))
+      .returning();
+    return shop;
+  }
+
+  async delete(tenantId: number, shopId: number, tx: Executor = this.db): Promise<void> {
+    await tx.delete(shops).where(and(eq(shops.tenantId, tenantId), eq(shops.id, shopId)));
+  }
+}

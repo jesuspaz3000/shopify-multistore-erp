@@ -81,6 +81,65 @@ describe('API (e2e)', () => {
     await agent.get('/auth/me').expect(401);
   });
 
+  describe('tiendas (/tenants/:tenant/shops)', () => {
+    async function registerCompany(companyName: string) {
+      const agent = request.agent(app.getHttpServer());
+      const email = `e2e-shops-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@example.com`;
+      createdEmails.push(email);
+      const res = await agent
+        .post('/auth/register')
+        .send({ companyName, firstName: 'Ana', lastName: 'Prueba', email, password: 'clave-segura-123' })
+        .expect(201);
+      return { agent, slug: res.body.memberships[0].slug as string };
+    }
+
+    it('crea, lista, edita y elimina tiendas de la propia empresa', async () => {
+      const { agent, slug } = await registerCompany('Empresa Tiendas E2E');
+      const base = `/tenants/${slug}/shops`;
+
+      const created = await agent
+        .post(base)
+        .send({ name: 'Tienda Lima', currencyCode: 'pen', countryCode: 'pe', ianaTimezone: 'America/Lima' })
+        .expect(201);
+      expect(created.body).toMatchObject({
+        handle: 'tienda-lima',
+        currencyCode: 'PEN',
+        countryCode: 'PE',
+        status: 'pending_connection',
+      });
+
+      // Mismo nombre -> handle distinto; "All" nunca puede ser un handle (es la vista consolidada).
+      expect((await agent.post(base).send({ name: 'Tienda Lima', currencyCode: 'USD' }).expect(201)).body.handle).toBe(
+        'tienda-lima-2',
+      );
+      expect((await agent.post(base).send({ name: 'All', currencyCode: 'USD' }).expect(201)).body.handle).toBe('all-2');
+
+      expect((await agent.get(base).expect(200)).body).toHaveLength(3);
+
+      // Renombrar no cambia el handle; '' en un campo opcional lo borra.
+      const updated = await agent.patch(`${base}/${created.body.id}`).send({ name: 'Lima Centro', countryCode: '' }).expect(200);
+      expect(updated.body).toMatchObject({ name: 'Lima Centro', handle: 'tienda-lima', countryCode: null });
+
+      await agent.delete(`${base}/${created.body.id}`).expect(204);
+      await agent.delete(`${base}/${created.body.id}`).expect(404);
+    });
+
+    it('valida el body y no deja ver ni tocar tiendas de otra empresa', async () => {
+      const a = await registerCompany('Empresa A E2E');
+      const b = await registerCompany('Empresa B E2E');
+      const shop = (await a.agent.post(`/tenants/${a.slug}/shops`).send({ name: 'Tienda A', currencyCode: 'USD' }).expect(201))
+        .body;
+
+      await a.agent.post(`/tenants/${a.slug}/shops`).send({ name: 'X', currencyCode: 'dolar' }).expect(400);
+      // B no pertenece a la empresa A: 404 (no se revela que exista).
+      await b.agent.get(`/tenants/${a.slug}/shops`).expect(404);
+      // B tampoco puede tocar una tienda de A a través de su propia empresa.
+      await b.agent.patch(`/tenants/${b.slug}/shops/${shop.id}`).send({ name: 'Hackeada' }).expect(404);
+      // Sin sesión: 401.
+      await request(app.getHttpServer()).get(`/tenants/${a.slug}/shops`).expect(401);
+    });
+  });
+
   // Debe ir AL FINAL: agota el límite de login de esta IP para el resto del archivo.
   it('POST /auth/login responde 429 al superar el límite por IP', async () => {
     // Otros tests ya consumieron parte del límite: se envían intentos hasta recibir 429.

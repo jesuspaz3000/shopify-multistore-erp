@@ -14,6 +14,17 @@ export type AuthContext = {
   user: AuthUser;
 };
 
+/** Empresa de la URL (/tenants/:tenant/...) validada por el TenantGuard. */
+export type TenantContext = {
+  tenantId: number;
+  slug: string;
+  tenantUserId: number;
+  role: string;
+  permissions: string[];
+  /** null = acceso a todas las tiendas; si no, solo a estos shop ids. */
+  allowedShopIds: number[] | null;
+};
+
 export type RequestMeta = {
   ipAddress?: string;
   userAgent?: string;
@@ -22,5 +33,6 @@ export type RequestMeta = {
 declare module 'express-serve-static-core' {
   interface Request {
     auth?: AuthContext;
+    tenant?: TenantContext;
   }
 }

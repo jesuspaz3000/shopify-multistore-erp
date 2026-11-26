@@ -15,6 +15,13 @@
       "when": 1795707602074,
       "tag": "0001_seed_global_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795713380936,
+      "tag": "0002_shops_unique_handle",
+      "breakpoints": true
     }
   ]
 }

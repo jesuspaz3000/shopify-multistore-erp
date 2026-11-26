@@ -1,5 +1,10 @@
-import PagePlaceholder from '@/components/layout/PagePlaceholder';
+import { redirect } from 'next/navigation';
 
-export default function SettingsPage() {
-  return <PagePlaceholder title="Configuración" path="/[tenant]/settings" />;
+// Página que solo redirige: puede bloquear la navegación.
+export const instant = false;
+
+// /{tenant}/settings -> primera pestaña (Tiendas).
+export default async function SettingsPage({ params }: PageProps<'/[tenant]/settings'>) {
+  const { tenant } = await params;
+  redirect(`/${tenant}/settings/shops`);
 }
