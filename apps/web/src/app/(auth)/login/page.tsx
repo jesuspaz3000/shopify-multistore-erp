@@ -1,5 +1,8 @@
-import PagePlaceholder from '@/components/layout/PagePlaceholder';
+import type { Metadata } from 'next';
+import LoginForm from '@/features/auth/components/LoginForm';
+
+export const metadata: Metadata = { title: 'Iniciar sesión' };
 
 export default function LoginPage() {
-  return <PagePlaceholder title="Iniciar sesión" path="/login" />;
+  return <LoginForm />;
 }

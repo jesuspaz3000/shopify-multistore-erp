@@ -13,13 +13,19 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:api": "npm run start:dev -w @erp/api",
-    "dev:web": "npm run dev -w @erp/web",
-    "build": "npm run build -w @erp/contracts && npm run build -w @erp/api && npm run build -w @erp/web",
+    "contracts:build": "npm run build -w @erp/contracts",
+    "dev:api": "npm run contracts:build && npm run start:dev -w @erp/api",
+    "dev:web": "npm run contracts:build && npm run dev -w @erp/web",
+    "build": "npm run contracts:build && npm run build -w @erp/api && npm run build -w @erp/web",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e -w @erp/api",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
-    "db:logs": "docker compose logs -f postgres"
+    "db:logs": "docker compose logs -f postgres",
+    "db:generate": "npm run db:generate -w @erp/api",
+    "db:migrate": "npm run db:migrate -w @erp/api",
+    "db:studio": "npm run db:studio -w @erp/api",
+    "superadmin:create": "npm run contracts:build && npm run superadmin:create -w @erp/api --"
   }
 }
