@@ -14,7 +14,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Typography from '@mui/material/Typography';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { logout } from '../api/auth.api';
+import { hardLogout } from '../hard-logout';
 
 export default function UserMenu({ user, companyName, canSwitchTenant }: { user: SessionUser; companyName: string; canSwitchTenant: boolean }) {
   const router = useRouter();
@@ -23,12 +23,7 @@ export default function UserMenu({ user, companyName, canSwitchTenant }: { user:
 
   const handleLogout = async () => {
     setAnchor(null);
-    try {
-      await logout();
-    } finally {
-      router.replace('/login');
-      router.refresh();
-    }
+    await hardLogout();
   };
 
   return (

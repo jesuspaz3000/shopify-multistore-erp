@@ -2,23 +2,16 @@
 
 import LogoutIcon from '@mui/icons-material/Logout';
 import Button from '@mui/material/Button';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { logout } from '../api/auth.api';
+import { hardLogout } from '../hard-logout';
 
 /** Botón "Cerrar sesión" para páginas sin menú de usuario (ej. elegir empresa). */
 export default function LogoutButton() {
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   const handleClick = async () => {
     setLoading(true);
-    try {
-      await logout();
-    } finally {
-      router.replace('/login');
-      router.refresh();
-    }
+    await hardLogout();
   };
 
   return (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { z } from 'zod';
 import { ApiError } from '@/lib/http';
 
@@ -17,6 +17,20 @@ export function useZodForm<TInput extends Record<string, string>, TOutput>(
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const initialRef = useRef(initial);
+
+  // Next 16 (Cache Components) no desmonta las páginas al navegar: las oculta con <Activity> y
+  // conserva su estado. Sin esto, al volver al login tras cerrar sesión el botón seguía "cargando"
+  // y la contraseña seguía escrita. La limpieza corre cuando la página se oculta (guía de Next).
+  useLayoutEffect(() => {
+    const initialValues = initialRef.current;
+    return () => {
+      setValues(initialValues);
+      setFieldErrors({});
+      setFormError(null);
+      setSubmitting(false);
+    };
+  }, []);
 
   const setField = (name: keyof TInput & string) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setValues((prev) => ({ ...prev, [name]: event.target.value }));
