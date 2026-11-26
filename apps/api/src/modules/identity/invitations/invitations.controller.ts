@@ -1,2 +1,0 @@
-// Endpoints de invitaciones.
-export {};

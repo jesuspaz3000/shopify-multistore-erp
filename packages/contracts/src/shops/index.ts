@@ -77,3 +77,6 @@ export type ShopResponse = {
   myshopifyDomain: string | null;
   createdAt: string;
 };
+
+/** Opción liviana de tienda para selectores (sin paginar). */
+export type ShopOptionResponse = { id: number; handle: string; name: string };

@@ -1,8 +1,12 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   type CreateShopData,
   createShopSchema,
+  type Paginated,
+  type PaginationQuery,
+  paginationQuerySchema,
+  type ShopOptionResponse,
   type ShopResponse,
   type UpdateShopData,
   updateShopSchema,
@@ -24,9 +28,19 @@ export class ShopsController {
   constructor(private readonly shops: ShopsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Tiendas de la empresa (solo las permitidas al usuario)' })
-  list(@CurrentTenant() tenant: TenantContext): Promise<ShopResponse[]> {
-    return this.shops.list(tenant);
+  @ApiOperation({ summary: 'Tiendas de la empresa, paginadas (?page, ?pageSize, ?q)' })
+  list(
+    @CurrentTenant() tenant: TenantContext,
+    @Query({ schema: paginationQuerySchema }) query: PaginationQuery,
+  ): Promise<Paginated<ShopResponse>> {
+    return this.shops.list(tenant, query);
+  }
+
+  // Ruta estática declarada antes de las dinámicas (:shopId).
+  @Get('options')
+  @ApiOperation({ summary: 'Todas las tiendas visibles (id, handle, nombre) para selectores' })
+  options(@CurrentTenant() tenant: TenantContext): Promise<ShopOptionResponse[]> {
+    return this.shops.options(tenant);
   }
 
   @Post()

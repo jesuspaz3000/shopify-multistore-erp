@@ -2,7 +2,7 @@ import LinearProgress from '@mui/material/LinearProgress';
 import { notFound, redirect } from 'next/navigation';
 import { Suspense } from 'react';
 import AppShell from '@/components/layout/AppShell';
-import { getTenantShops } from '@/features/shops/api/shops.server';
+import { getShopOptions } from '@/features/shops/api/shops.server';
 import { getMe } from '@/lib/session';
 
 // Valida que el usuario pertenezca al tenant de la URL y monta la estructura del dashboard.
@@ -25,7 +25,7 @@ async function TenantShell({ params, children }: { params: LayoutProps<'/[tenant
   // 404 (y no 403) para no revelar qué empresas existen.
   if (!membership) notFound();
 
-  const shops = await getTenantShops(tenant);
+  const shops = await getShopOptions(tenant);
 
   return (
     <AppShell me={me} membership={membership} shops={shops.map((s) => ({ handle: s.handle, name: s.name }))}>

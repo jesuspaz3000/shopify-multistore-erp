@@ -1,5 +1,14 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import type { CreateShopData, ShopResponse, ShopStatus, UpdateShopData } from '@erp/contracts';
+import {
+  type CreateShopData,
+  type Paginated,
+  paginated,
+  type PaginationQuery,
+  type ShopOptionResponse,
+  type ShopResponse,
+  type ShopStatus,
+  type UpdateShopData,
+} from '@erp/contracts';
 import { isUniqueViolation } from '../../shared/database/pg-errors.js';
 import type { TenantContext } from '../../shared/http/request-context.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -27,9 +36,13 @@ export class ShopsService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(tenant: TenantContext): Promise<ShopResponse[]> {
-    const rows = await this.repo.list(tenant.tenantId, tenant.allowedShopIds);
-    return rows.map(toShopResponse);
+  async list(tenant: TenantContext, query: PaginationQuery): Promise<Paginated<ShopResponse>> {
+    const { items, total } = await this.repo.listPage(tenant.tenantId, tenant.allowedShopIds, query);
+    return paginated(items.map(toShopResponse), total, query);
+  }
+
+  options(tenant: TenantContext): Promise<ShopOptionResponse[]> {
+    return this.repo.options(tenant.tenantId, tenant.allowedShopIds);
   }
 
   /**

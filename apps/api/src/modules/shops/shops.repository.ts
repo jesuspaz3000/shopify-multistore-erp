@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, inArray, like, or } from 'drizzle-orm';
+import { likePattern, type PaginationQuery } from '@erp/contracts';
+import { and, asc, count, eq, ilike, inArray, like, or } from 'drizzle-orm';
 import { DB, type Database, type Tx } from '../../shared/database/database.module.js';
 import { shops } from './shops.schema.js';
 
@@ -14,15 +15,36 @@ export class ShopsRepository {
     return this.db.transaction(fn);
   }
 
-  /** Tiendas de la empresa; `onlyIds` restringe a las permitidas al usuario (null = todas). */
-  list(tenantId: number, onlyIds: number[] | null, tx: Executor = this.db): Promise<ShopRow[]> {
+  private visibleFilter(tenantId: number, onlyIds: number[] | null, q?: string) {
     const filters = [eq(shops.tenantId, tenantId)];
     if (onlyIds) filters.push(inArray(shops.id, onlyIds.length > 0 ? onlyIds : [-1]));
+    if (q) filters.push(or(ilike(shops.name, likePattern(q)), ilike(shops.handle, likePattern(q)))!);
+    return and(...filters);
+  }
+
+  /** Página de tiendas de la empresa; `onlyIds` restringe a las permitidas al usuario (null = todas). */
+  async listPage(tenantId: number, onlyIds: number[] | null, query: PaginationQuery, tx: Executor = this.db) {
+    const where = this.visibleFilter(tenantId, onlyIds, query.q);
+    const [items, [{ total }]] = await Promise.all([
+      tx
+        .select()
+        .from(shops)
+        .where(where)
+        .orderBy(asc(shops.name), asc(shops.id)) // id: orden estable entre páginas
+        .limit(query.pageSize)
+        .offset((query.page - 1) * query.pageSize),
+      tx.select({ total: count() }).from(shops).where(where),
+    ]);
+    return { items, total };
+  }
+
+  /** Todas las tiendas visibles, solo id/handle/nombre (selectores). */
+  options(tenantId: number, onlyIds: number[] | null, tx: Executor = this.db) {
     return tx
-      .select()
+      .select({ id: shops.id, handle: shops.handle, name: shops.name })
       .from(shops)
-      .where(and(...filters))
-      .orderBy(asc(shops.name));
+      .where(this.visibleFilter(tenantId, onlyIds))
+      .orderBy(asc(shops.name), asc(shops.id));
   }
 
   async findById(tenantId: number, shopId: number, tx: Executor = this.db): Promise<ShopRow | undefined> {

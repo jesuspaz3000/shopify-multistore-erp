@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 import OverviewPanel from '@/features/dashboard/components/OverviewPanel';
-import { getTenantShops } from '@/features/shops/api/shops.server';
+import { getShopOptions } from '@/features/shops/api/shops.server';
 import { getMe } from '@/lib/session';
 
 export const metadata: Metadata = { title: 'Resumen' };
@@ -19,7 +19,7 @@ export default function OverviewPage({ params }: PageProps<'/[tenant]/[shop]'>) 
 
 async function Overview({ params }: { params: PageProps<'/[tenant]/[shop]'>['params'] }) {
   const { tenant, shop } = await params;
-  const [me, shops] = await Promise.all([getMe(), getTenantShops(tenant)]);
+  const [me, shops] = await Promise.all([getMe(), getShopOptions(tenant)]);
   if (!me) redirect('/login');
 
   const current = shops.find((s) => s.handle === shop);

@@ -54,6 +54,10 @@ export class IdentityRepository {
     return tenant;
   }
 
+  async insertTenantRoles(values: (typeof roles.$inferInsert)[], tx: Executor = this.db) {
+    if (values.length > 0) await tx.insert(roles).values(values);
+  }
+
   async insertMembership(values: typeof tenantUsers.$inferInsert, tx: Executor = this.db) {
     const [membership] = await tx.insert(tenantUsers).values(values).returning();
     return membership;

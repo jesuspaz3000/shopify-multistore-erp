@@ -1,0 +1,120 @@
+'use client';
+
+import type { Paginated } from '@erp/contracts';
+import { PAGE_SIZE_OPTIONS } from '@erp/contracts';
+import Box from '@mui/material/Box';
+import LinearProgress from '@mui/material/LinearProgress';
+import Paper from '@mui/material/Paper';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
+import TableHead from '@mui/material/TableHead';
+import TablePagination from '@mui/material/TablePagination';
+import TableRow from '@mui/material/TableRow';
+import Typography from '@mui/material/Typography';
+import type { ReactNode } from 'react';
+import { useTableParams } from './useTableParams';
+
+export type Column<T> = {
+  key: string;
+  header: ReactNode;
+  render: (row: T) => ReactNode;
+  align?: 'left' | 'center' | 'right';
+  /** Ancho mínimo de la columna (px). */
+  minWidth?: number;
+  /** Evita el salto de línea (ej. columna de acciones). */
+  nowrap?: boolean;
+  /** Ocultar la columna (ej. acciones sin permiso). */
+  hidden?: boolean;
+};
+
+type Props<T> = {
+  columns: Column<T>[];
+  /** Página que devolvió la API. */
+  data: Paginated<T>;
+  getRowId: (row: T) => string | number;
+  /** Prefijo en la URL si la página tiene varias tablas (ej. 'inv' -> ?invPage=2). */
+  paramPrefix?: string;
+  /** Mensaje cuando no hay filas (con búsqueda activa se muestra "Sin resultados"). */
+  emptyMessage?: ReactNode;
+  /** Texto buscado actualmente (para el mensaje de vacío). */
+  searchQuery?: string;
+  'aria-label'?: string;
+};
+
+/**
+ * Tabla paginada reutilizable. La página y su tamaño viven en la URL (query params), así que
+ * se pueden compartir, recargar y navegar con "Atrás". Los datos los trae el servidor.
+ */
+export default function DataTable<T>({
+  columns,
+  data,
+  getRowId,
+  paramPrefix = '',
+  emptyMessage = 'No hay registros.',
+  searchQuery,
+  'aria-label': ariaLabel,
+}: Props<T>) {
+  const { setParams, isPending } = useTableParams(paramPrefix);
+  const visible = columns.filter((c) => !c.hidden);
+
+  return (
+    <Paper variant="outlined" sx={{ position: 'relative', overflow: 'hidden' }}>
+      {/* Indicador mientras llega la nueva página (la anterior sigue visible) */}
+      <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, zIndex: 1 }}>{isPending && <LinearProgress />}</Box>
+
+      <TableContainer sx={{ opacity: isPending ? 0.6 : 1, transition: 'opacity 150ms' }}>
+        <Table size="small" aria-label={ariaLabel}>
+          <TableHead>
+            <TableRow>
+              {visible.map((c) => (
+                <TableCell key={c.key} align={c.align} sx={{ minWidth: c.minWidth, whiteSpace: c.nowrap ? 'nowrap' : undefined }}>
+                  {c.header}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {data.items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={visible.length} sx={{ py: 4, textAlign: 'center' }}>
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    {searchQuery ? `Sin resultados para "${searchQuery}".` : emptyMessage}
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : (
+              data.items.map((row) => (
+                <TableRow key={getRowId(row)} hover>
+                  {visible.map((c) => (
+                    <TableCell key={c.key} align={c.align} sx={{ whiteSpace: c.nowrap ? 'nowrap' : undefined }}>
+                      {c.render(row)}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      {data.total > 0 && (
+        <TablePagination
+          component="div"
+          count={data.total}
+          page={Math.min(data.page, data.totalPages) - 1}
+          rowsPerPage={data.pageSize}
+          rowsPerPageOptions={[...PAGE_SIZE_OPTIONS]}
+          onPageChange={(_, page) => setParams({ page: page + 1 })}
+          onRowsPerPageChange={(e) => setParams({ pageSize: Number(e.target.value), page: 1 })}
+          labelRowsPerPage="Filas por página"
+          labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
+          getItemAriaLabel={(type) =>
+            ({ first: 'Primera página', last: 'Última página', next: 'Página siguiente', previous: 'Página anterior' })[type]
+          }
+        />
+      )}
+    </Paper>
+  );
+}

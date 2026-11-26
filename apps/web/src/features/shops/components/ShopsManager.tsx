@@ -1,42 +1,33 @@
 'use client';
 
-import type { ShopResponse } from '@erp/contracts';
+import type { Paginated, ShopResponse } from '@erp/contracts';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import StorefrontIcon from '@mui/icons-material/Storefront';
-import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
-import DialogTitle from '@mui/material/DialogTitle';
 import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
 import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableContainer from '@mui/material/TableContainer';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import DataTable, { type Column } from '@/components/data-table/DataTable';
+import TableSearch from '@/components/data-table/TableSearch';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { ApiError } from '@/lib/http';
 import { deleteShop } from '../api/shops.api';
 import { countryLabel, STATUS_LABELS } from '../shop-options';
 import ShopFormDialog from './ShopFormDialog';
 
-type Props = { tenant: string; shops: ShopResponse[]; canManage: boolean };
+type Props = { tenant: string; page: Paginated<ShopResponse>; searchQuery?: string; canManage: boolean };
 
-/** Configuración → Tiendas: listado y alta/edición/baja (las tiendas aún no se conectan a Shopify). */
-export default function ShopsManager({ tenant, shops, canManage }: Props) {
+/** Configuración → Tiendas: listado paginado y alta/edición/baja (aún sin conexión a Shopify). */
+export default function ShopsManager({ tenant, page, searchQuery, canManage }: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState<ShopResponse | 'new' | null>(null);
   const [deleting, setDeleting] = useState<ShopResponse | null>(null);
@@ -46,7 +37,7 @@ export default function ShopsManager({ tenant, shops, canManage }: Props) {
 
   const afterChange = (message: string) => {
     setToast(message);
-    router.refresh(); // vuelve a pedir los datos del servidor (lista y selector de tienda)
+    router.refresh(); // vuelve a pedir los datos del servidor (tabla y selector de tienda)
   };
 
   const confirmDelete = async () => {
@@ -64,9 +55,69 @@ export default function ShopsManager({ tenant, shops, canManage }: Props) {
     }
   };
 
+  const columns: Column<ShopResponse>[] = [
+    {
+      key: 'name',
+      header: 'Tienda',
+      minWidth: 200,
+      render: (shop) => (
+        <>
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            {shop.name}
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+            /{tenant}/{shop.handle}
+          </Typography>
+        </>
+      ),
+    },
+    { key: 'currency', header: 'Moneda', render: (shop) => shop.currencyCode },
+    { key: 'country', header: 'País', render: (shop) => countryLabel(shop.countryCode) },
+    { key: 'timezone', header: 'Zona horaria', render: (shop) => shop.ianaTimezone ?? '—' },
+    {
+      key: 'status',
+      header: 'Estado',
+      render: (shop) => {
+        const status = STATUS_LABELS[shop.status];
+        return <Chip size="small" variant="outlined" label={status.label} color={status.color} />;
+      },
+    },
+    {
+      key: 'actions',
+      header: 'Acciones',
+      align: 'right',
+      nowrap: true,
+      hidden: !canManage,
+      render: (shop) => (
+        <>
+          <Tooltip title="Editar">
+            <IconButton size="small" onClick={() => setEditing(shop)} aria-label={`Editar ${shop.name}`}>
+              <EditOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title={shop.status === 'pending_connection' ? 'Eliminar' : 'Solo se eliminan tiendas no conectadas'}>
+            <span>
+              <IconButton
+                size="small"
+                disabled={shop.status !== 'pending_connection'}
+                onClick={() => setDeleting(shop)}
+                aria-label={`Eliminar ${shop.name}`}
+              >
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </>
+      ),
+    },
+  ];
+
+  // Sin tiendas y sin búsqueda: estado vacío ilustrado en lugar de una tabla vacía.
+  const noShopsAtAll = page.total === 0 && !searchQuery;
+
   return (
     <Stack spacing={2}>
-      <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between', gap: 2 }}>
         <Box>
           <Typography variant="h6" component="h2">
             Tiendas
@@ -75,14 +126,17 @@ export default function ShopsManager({ tenant, shops, canManage }: Props) {
             Las tiendas Shopify que administras desde este ERP.
           </Typography>
         </Box>
-        {canManage && (
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setEditing('new')}>
-            Agregar tienda
-          </Button>
-        )}
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+          {!noShopsAtAll && <TableSearch placeholder="Buscar tienda…" />}
+          {canManage && (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setEditing('new')} sx={{ flexShrink: 0 }}>
+              Agregar tienda
+            </Button>
+          )}
+        </Stack>
       </Stack>
 
-      {shops.length === 0 ? (
+      {noShopsAtAll ? (
         <Paper variant="outlined" sx={{ p: 5, textAlign: 'center', borderStyle: 'dashed' }}>
           <StorefrontIcon sx={{ fontSize: 40, color: 'text.secondary' }} />
           <Typography variant="subtitle1" sx={{ mt: 1 }}>
@@ -93,64 +147,7 @@ export default function ShopsManager({ tenant, shops, canManage }: Props) {
           </Typography>
         </Paper>
       ) : (
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Tienda</TableCell>
-                <TableCell>Moneda</TableCell>
-                <TableCell>País</TableCell>
-                <TableCell>Zona horaria</TableCell>
-                <TableCell>Estado</TableCell>
-                {canManage && <TableCell align="right">Acciones</TableCell>}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {shops.map((shop) => {
-                const status = STATUS_LABELS[shop.status];
-                return (
-                  <TableRow key={shop.id} hover>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        {shop.name}
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                        /{tenant}/{shop.handle}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>{shop.currencyCode}</TableCell>
-                    <TableCell>{countryLabel(shop.countryCode)}</TableCell>
-                    <TableCell>{shop.ianaTimezone ?? '—'}</TableCell>
-                    <TableCell>
-                      <Chip size="small" variant="outlined" label={status.label} color={status.color} />
-                    </TableCell>
-                    {canManage && (
-                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                        <Tooltip title="Editar">
-                          <IconButton size="small" onClick={() => setEditing(shop)} aria-label={`Editar ${shop.name}`}>
-                            <EditOutlinedIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title={shop.status === 'pending_connection' ? 'Eliminar' : 'Solo se eliminan tiendas no conectadas'}>
-                          <span>
-                            <IconButton
-                              size="small"
-                              disabled={shop.status !== 'pending_connection'}
-                              onClick={() => setDeleting(shop)}
-                              aria-label={`Eliminar ${shop.name}`}
-                            >
-                              <DeleteOutlineIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </TableContainer>
+        <DataTable columns={columns} data={page} getRowId={(s) => s.id} searchQuery={searchQuery} aria-label="Tiendas" />
       )}
 
       {editing && (
@@ -166,35 +163,24 @@ export default function ShopsManager({ tenant, shops, canManage }: Props) {
         />
       )}
 
-      <Dialog open={!!deleting} onClose={busy ? undefined : () => setDeleting(null)}>
-        <DialogTitle>¿Eliminar la tienda?</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Se eliminará <strong>{deleting?.name}</strong> del ERP. Esta acción no se puede deshacer.
-          </DialogContentText>
-          {deleteError && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              {deleteError}
-            </Alert>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleting(null)} disabled={busy} color="inherit">
-            Cancelar
-          </Button>
-          <Button onClick={confirmDelete} color="error" variant="contained" loading={busy}>
-            Eliminar
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Snackbar
-        open={!!toast}
-        autoHideDuration={3000}
-        onClose={() => setToast(null)}
-        message={toast}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      <ConfirmDialog
+        item={deleting}
+        title={() => '¿Eliminar la tienda?'}
+        description={(shop) => (
+          <>
+            Se eliminará <strong>{shop.name}</strong> del ERP. Esta acción no se puede deshacer.
+          </>
+        )}
+        busy={busy}
+        error={deleteError}
+        onConfirm={confirmDelete}
+        onCancel={() => {
+          setDeleting(null);
+          setDeleteError(null);
+        }}
       />
+
+      <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast(null)} message={toast} />
     </Stack>
   );
 }
