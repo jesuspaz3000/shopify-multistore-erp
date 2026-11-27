@@ -1,6 +1,6 @@
 import { productsQuerySchema } from '@erp/contracts';
 import Alert from '@mui/material/Alert';
-import Skeleton from '@mui/material/Skeleton';
+import { ListPageSkeleton } from '@/components/skeletons';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
@@ -16,7 +16,7 @@ type Props = PageProps<'/[tenant]/[shop]/products'>;
 
 export default function ProductsPage({ params, searchParams }: Props) {
   return (
-    <Suspense fallback={<Skeleton variant="rounded" height={320} />}>
+    <Suspense fallback={<ListPageSkeleton title="h5" filters={1} columns={5} rows={6} />}>
       <ProductsSection params={params} searchParams={searchParams} />
     </Suspense>
   );

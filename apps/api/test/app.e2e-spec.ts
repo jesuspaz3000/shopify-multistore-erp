@@ -215,6 +215,111 @@ describe('API (e2e)', () => {
       await a.agent.post(base).send({ code: 'BOD-LIMA-01', name: 'Bodega Lima nueva' }).expect(201);
     });
 
+    it('stock por bodega: ajustes, conteo con compare-and-set, concurrencia y kardex', async () => {
+      const a = await registerCompany('Empresa Stock E2E');
+      const b = await registerCompany('Empresa Stock B E2E');
+      const t = `/tenants/${a.slug}`;
+      const lima = (await a.agent.post(`${t}/locations`).send({ code: 'LIMA', name: 'Bodega Lima' }).expect(201)).body;
+      const cusco = (await a.agent.post(`${t}/locations`).send({ code: 'CUSCO', name: 'Bodega Cusco' }).expect(201)).body;
+      const product = (
+        await a.agent
+          .post(`${t}/products`)
+          .send({
+            title: 'Polera',
+            options: [{ name: 'Talla', values: ['S', 'M'] }],
+            variants: [
+              { optionValues: ['S'], sku: 'P-S', price: '10' },
+              { optionValues: ['M'], sku: 'P-M', price: '10' },
+            ],
+          })
+          .expect(201)
+      ).body;
+      const [s, m] = product.variants;
+      const adjust = (body: object, agent = a.agent) => agent.post(`${t}/inventory/adjustments`).send(body);
+
+      // Recepción: +10 S y +4 M en Lima; +3 S en Cusco.
+      const received = await adjust({
+        locationId: lima.id,
+        reason: 'received',
+        note: 'Guía 001',
+        changes: [
+          { inventoryItemId: s.inventoryItemId, delta: 10 },
+          { inventoryItemId: m.inventoryItemId, delta: 4 },
+        ],
+      }).expect(200);
+      expect(received.body.levels).toEqual([
+        { inventoryItemId: s.inventoryItemId, available: 10, onHand: 10 },
+        { inventoryItemId: m.inventoryItemId, available: 4, onHand: 4 },
+      ]);
+      await adjust({ locationId: cusco.id, reason: 'received', changes: [{ inventoryItemId: s.inventoryItemId, delta: 3 }] }).expect(200);
+
+      // Stock por bodega y sumado.
+      const atLima = (await a.agent.get(`${t}/inventory?locationId=${lima.id}`).expect(200)).body;
+      expect(atLima.items.map((r: { sku: string; available: number }) => [r.sku, r.available])).toEqual([
+        ['P-S', 10],
+        ['P-M', 4],
+      ]);
+      expect(atLima.items[0]).toMatchObject({ productTitle: 'Polera', variantTitle: 'S', onHand: 10, committed: 0, unavailable: 0 });
+      const all = (await a.agent.get(`${t}/inventory`).expect(200)).body;
+      expect(all.items.find((r: { sku: string }) => r.sku === 'P-S').available).toBe(13);
+      expect((await a.agent.get(`${t}/inventory?q=p-m`).expect(200)).body.total).toBe(1);
+      // El producto muestra el disponible total por variante.
+      const detail = (await a.agent.get(`${t}/products/${product.id}`).expect(200)).body;
+      expect(detail.variants.map((v: { available: number }) => v.available)).toEqual([13, 4]);
+
+      // Conteo (cantidad nueva) con compare-and-set: si el stock cambió, 409 y no se aplica nada.
+      await adjust({
+        locationId: lima.id,
+        reason: 'cycle_count_available',
+        changes: [
+          { inventoryItemId: s.inventoryItemId, quantity: 8, compareQuantity: 10 },
+          { inventoryItemId: m.inventoryItemId, quantity: 0, compareQuantity: 99 },
+        ],
+      }).expect(409);
+      expect((await a.agent.get(`${t}/inventory?locationId=${lima.id}&q=p-s`).expect(200)).body.items[0].available).toBe(10);
+      await adjust({
+        locationId: lima.id,
+        reason: 'cycle_count_available',
+        changes: [{ inventoryItemId: s.inventoryItemId, quantity: 8, compareQuantity: 10 }],
+      }).expect(200);
+
+      // No se puede dejar el disponible en negativo; validaciones del body.
+      await adjust({ locationId: lima.id, reason: 'shrinkage', changes: [{ inventoryItemId: m.inventoryItemId, delta: -5 }] }).expect(400);
+      await adjust({ locationId: lima.id, reason: 'shrinkage', changes: [{ inventoryItemId: m.inventoryItemId }] }).expect(400);
+      await adjust({ locationId: lima.id, reason: 'inventado', changes: [{ inventoryItemId: m.inventoryItemId, delta: 1 }] }).expect(400);
+      // Ítems o bodegas de otra empresa no existen para esta.
+      await adjust({ locationId: lima.id, reason: 'correction', changes: [{ inventoryItemId: s.inventoryItemId, delta: 1 }] }, b.agent)
+        .expect(404);
+      await b.agent
+        .post(`/tenants/${b.slug}/inventory/adjustments`)
+        .send({ locationId: lima.id, reason: 'correction', changes: [{ inventoryItemId: s.inventoryItemId, delta: 1 }] })
+        .expect(404);
+
+      // 20 ajustes simultáneos de +1: el bloqueo de fila no pierde ninguno.
+      await Promise.all(
+        Array.from({ length: 20 }, () =>
+          adjust({ locationId: lima.id, reason: 'correction', changes: [{ inventoryItemId: m.inventoryItemId, delta: 1 }] }).expect(200),
+        ),
+      );
+      expect((await a.agent.get(`${t}/inventory?locationId=${lima.id}&q=p-m`).expect(200)).body.items[0].available).toBe(24);
+
+      // Kardex: más reciente primero, con cantidad resultante, motivo, nota y usuario.
+      const kardex = (await a.agent.get(`${t}/inventory/adjustments?inventoryItemId=${s.inventoryItemId}&locationId=${lima.id}`).expect(200))
+        .body;
+      expect(kardex.items.map((k: { delta: number; quantityAfter: number; reason: string }) => [k.delta, k.quantityAfter, k.reason])).toEqual([
+        [-2, 8, 'cycle_count_available'],
+        [10, 10, 'received'],
+      ]);
+      expect(kardex.items[1]).toMatchObject({ note: 'Guía 001', locationCode: 'LIMA', variantTitle: 'S', userName: 'Ana Prueba', source: 'ERP' });
+
+      // Una bodega con stock no se puede eliminar; sin stock, sí.
+      await a.agent.delete(`${t}/locations/${cusco.id}`).expect(409);
+      await adjust({ locationId: cusco.id, reason: 'correction', changes: [{ inventoryItemId: s.inventoryItemId, quantity: 0 }] }).expect(200);
+      await a.agent.delete(`${t}/locations/${cusco.id}`).expect(204);
+      // Bodega eliminada: ya no admite ajustes.
+      await adjust({ locationId: cusco.id, reason: 'received', changes: [{ inventoryItemId: s.inventoryItemId, delta: 1 }] }).expect(404);
+    });
+
     it('productos: opciones y variantes, SKU único, edición que conserva variantes y concurrencia', async () => {
       const a = await registerCompany('Empresa Catalogo E2E');
       const b = await registerCompany('Empresa Catalogo B E2E');

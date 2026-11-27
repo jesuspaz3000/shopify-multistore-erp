@@ -1,4 +1,4 @@
-import LinearProgress from '@mui/material/LinearProgress';
+import { AppShellSkeleton } from '@/components/skeletons';
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 import { getMe } from '@/lib/session';
@@ -7,7 +7,7 @@ import { getMe } from '@/lib/session';
 // Va dentro de <Suspense> porque lee cookies (dato dinámico) con cacheComponents activado.
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <Suspense fallback={<LinearProgress />}>
+    <Suspense fallback={<AppShellSkeleton />}>
       <RequireSession>{children}</RequireSession>
     </Suspense>
   );

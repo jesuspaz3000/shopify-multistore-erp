@@ -209,6 +209,10 @@ export type VariantResponse = {
   taxable: boolean;
   weight: string | null;
   weightUnit: WeightUnit;
+  /** Ítem de inventario de la variante (stock por bodega). */
+  inventoryItemId: number;
+  /** Disponible sumando todas las bodegas. */
+  available: number;
 };
 
 export type ProductResponse = {

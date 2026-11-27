@@ -1,5 +1,5 @@
 import Alert from '@mui/material/Alert';
-import Skeleton from '@mui/material/Skeleton';
+import { UsersSkeleton } from '@/components/skeletons';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
@@ -17,7 +17,7 @@ type Props = PageProps<'/[tenant]/settings/users'>;
 
 export default function SettingsUsersPage({ params, searchParams }: Props) {
   return (
-    <Suspense fallback={<Skeleton variant="rounded" height={260} />}>
+    <Suspense fallback={<UsersSkeleton />}>
       <UsersSection params={params} searchParams={searchParams} />
     </Suspense>
   );

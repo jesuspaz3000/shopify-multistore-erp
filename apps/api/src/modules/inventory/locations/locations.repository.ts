@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { type LocationShopLink, likePattern, type PaginationQuery } from '@erp/contracts';
-import { and, asc, count, eq, ilike, inArray, isNull, notInArray, or } from 'drizzle-orm';
+import { and, asc, count, eq, ilike, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { DB, type Database, type Tx } from '../../../shared/database/database.module.js';
 import { shops } from '../../shops/shops.schema.js';
-import { locations, shopLocations } from '../infrastructure/persistence/inventory.schema.js';
+import { inventoryLevels, locations, shopLocations } from '../infrastructure/persistence/inventory.schema.js';
 
 type Executor = Database | Tx;
 export type LocationRow = typeof locations.$inferSelect;
@@ -145,6 +145,15 @@ export class LocationsRepository {
         .values({ tenantId, locationId, shopId: link.shopId, ...rule })
         .onConflictDoUpdate({ target: [shopLocations.shopId, shopLocations.locationId], set: rule });
     }
+  }
+
+  /** Unidades físicas (on_hand) que hay en la bodega. */
+  async unitsOnHand(tenantId: number, locationId: number, tx: Executor = this.db): Promise<number> {
+    const [row] = await tx
+      .select({ units: sql<number>`coalesce(sum(${inventoryLevels.onHand}), 0)::int` })
+      .from(inventoryLevels)
+      .where(and(eq(inventoryLevels.tenantId, tenantId), eq(inventoryLevels.locationId, locationId)));
+    return row.units;
   }
 
   /** Al eliminar una bodega deja de abastecer a todas las tiendas. */

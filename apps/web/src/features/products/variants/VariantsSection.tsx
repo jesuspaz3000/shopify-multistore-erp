@@ -50,6 +50,12 @@ type Props = {
   disabled?: boolean;
 };
 
+/** Disponible (suma de bodegas) de variantes guardadas que controlan stock; "—" si no aplica. */
+function availableLabel(variants: VariantDraft[]): string {
+  const counted = variants.filter((v) => v.fields.tracked && v.available !== undefined);
+  return counted.length === 0 ? '—' : String(counted.reduce((acc, v) => acc + (v.available ?? 0), 0));
+}
+
 /** Sección "Variantes" al estilo de Shopify: opciones arriba, variantes (agrupadas) abajo. */
 export default function VariantsSection({ options, variants, onChange, errors, currency, disabled }: Props) {
   const [editing, setEditing] = useState<{ option: OptionDraft; isNew: boolean } | null>(null);
@@ -148,6 +154,7 @@ export default function VariantsSection({ options, variants, onChange, errors, c
             error: !!errors[`${variant.uid}.price`],
           })}
         </TableCell>
+        <TableCell align="right">{availableLabel([variant])}</TableCell>
         <TableCell sx={{ color: variant.fields.sku ? 'text.primary' : 'text.disabled' }}>{variant.fields.sku || 'Sin SKU'}</TableCell>
       </TableRow>
     );
@@ -271,6 +278,7 @@ export default function VariantsSection({ options, variants, onChange, errors, c
                 </TableCell>
                 <TableCell>Variante</TableCell>
                 <TableCell>Precio</TableCell>
+                <TableCell align="right">Disponible</TableCell>
                 <TableCell>SKU</TableCell>
               </TableRow>
             </TableHead>
@@ -328,6 +336,7 @@ export default function VariantsSection({ options, variants, onChange, errors, c
                               placeholder: range,
                             })}
                           </TableCell>
+                          <TableCell align="right">{availableLabel(group.variants)}</TableCell>
                           <TableCell />
                         </TableRow>
                         {open && group.variants.map((v) => variantRow(v, true))}

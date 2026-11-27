@@ -151,6 +151,7 @@ export default function ProductForm({ basePath, tenant, product, currency, canWr
   };
 
   const status = product ? PRODUCT_STATUS_LABELS[product.status] : null;
+  const inventoryPath = basePath.replace(/\/products$/, '/inventory');
   const singleProps = single && {
     fields: single.fields,
     onChange: changeSingle,
@@ -241,7 +242,11 @@ export default function ProductForm({ basePath, tenant, product, currency, canWr
                   <PricingFields {...singleProps} />
                 </Section>
                 <Section title="Inventario">
-                  <InventoryFields {...singleProps} />
+                  <InventoryFields
+                    {...singleProps}
+                    available={single?.available}
+                    inventoryHref={single?.fields.sku ? `${inventoryPath}?q=${encodeURIComponent(single.fields.sku)}` : inventoryPath}
+                  />
                 </Section>
                 <Section title="Envío">
                   <ShippingFields {...singleProps} />

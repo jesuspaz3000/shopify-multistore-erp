@@ -50,6 +50,13 @@
       "when": 1795745852778,
       "tag": "0006_variant_pricing_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795748350881,
+      "tag": "0007_inventory_levels_kardex",
+      "breakpoints": true
     }
   ]
 }

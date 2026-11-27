@@ -1,6 +1,6 @@
 import Alert from '@mui/material/Alert';
-import Skeleton from '@mui/material/Skeleton';
 import Stack from '@mui/material/Stack';
+import { AuthFormSkeleton } from '@/components/skeletons';
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import TextLink from '@/components/ui/TextLink';
@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: 'Invitación' };
 
 export default function InvitePage({ params }: PageProps<'/invite/[token]'>) {
   return (
-    <Suspense fallback={<Skeleton variant="rounded" height={320} />}>
+    <Suspense fallback={<AuthFormSkeleton fields={3} />}>
       <Invitation params={params} />
     </Suspense>
   );

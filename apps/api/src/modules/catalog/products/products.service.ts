@@ -16,6 +16,7 @@ import { isUniqueViolation } from '../../../shared/database/pg-errors.js';
 import type { TenantContext } from '../../../shared/http/request-context.js';
 import { AuditService } from '../../audit/audit.service.js';
 import { nextAvailableSlug, slugify } from '../../identity/slug.js';
+import { StockService } from '../../inventory/stock/stock.service.js';
 import { type ProductRow, ProductsRepository } from './products.repository.js';
 import { TenantCurrencyReader } from './tenant-currency.reader.js';
 
@@ -28,6 +29,7 @@ export class ProductsService {
     private readonly repo: ProductsRepository,
     private readonly currency: TenantCurrencyReader,
     private readonly audit: AuditService,
+    private readonly stock: StockService,
   ) {}
 
   async list(tenant: TenantContext, query: ProductsQuery): Promise<Paginated<ProductListItem>> {
@@ -214,6 +216,10 @@ export class ProductsService {
       this.repo.loadDetail(tenant.tenantId, product.id),
       this.currency.of(tenant.tenantId),
     ]);
+    const available = await this.stock.availableByItem(
+      tenant.tenantId,
+      variants.map(({ item }) => item.id),
+    );
     const valueById = new Map(values.map((v) => [v.id, v]));
     const valuesOf = (variantId: number) => {
       const chosen = links.filter((l) => l.variantId === variantId).map((l) => valueById.get(l.optionValueId)!);
@@ -246,6 +252,8 @@ export class ProductsService {
         taxable: variant.taxable,
         weight: item.weightValue ? trimDecimal(item.weightValue) : null,
         weightUnit: (item.weightUnit ?? 'KILOGRAMS') as WeightUnit,
+        inventoryItemId: item.id,
+        available: available.get(item.id) ?? 0,
       })),
       currency,
       version: product.version,

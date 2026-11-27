@@ -1,4 +1,4 @@
-import LinearProgress from '@mui/material/LinearProgress';
+import { AppShellSkeleton } from '@/components/skeletons';
 import { notFound, redirect } from 'next/navigation';
 import { Suspense } from 'react';
 import AppShell from '@/components/layout/AppShell';
@@ -10,7 +10,7 @@ import { getMe } from '@/lib/session';
 // navegación muestra el indicador de carga al instante en vez de quedar bloqueada.
 export default function TenantLayout({ children, params }: LayoutProps<'/[tenant]'>) {
   return (
-    <Suspense fallback={<LinearProgress />}>
+    <Suspense fallback={<AppShellSkeleton />}>
       <TenantShell params={params}>{children}</TenantShell>
     </Suspense>
   );

@@ -125,6 +125,10 @@ export class LocationsService {
   /** Baja lógica: la bodega desaparece de las listas, deja de abastecer tiendas y libera su código. */
   async remove(tenant: TenantContext, userId: number, locationId: number): Promise<void> {
     const location = await this.findOrFail(tenant, locationId);
+    const units = await this.repo.unitsOnHand(tenant.tenantId, locationId);
+    if (units > 0) {
+      throw new ConflictException(`La bodega aún tiene ${units} unidades. Ajusta su stock a 0 antes de eliminarla.`);
+    }
     await this.repo.transaction(async (tx) => {
       await this.repo.update(tenant.tenantId, locationId, { deletedAt: new Date(), isActive: false }, tx);
       await this.repo.deleteShopLinks(tenant.tenantId, locationId, tx);

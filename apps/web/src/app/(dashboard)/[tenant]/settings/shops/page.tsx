@@ -1,4 +1,4 @@
-import Skeleton from '@mui/material/Skeleton';
+import { ListPageSkeleton } from '@/components/skeletons';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
@@ -14,7 +14,7 @@ type Props = PageProps<'/[tenant]/settings/shops'>;
 
 export default function SettingsShopsPage({ params, searchParams }: Props) {
   return (
-    <Suspense fallback={<Skeleton variant="rounded" height={220} />}>
+    <Suspense fallback={<ListPageSkeleton columns={6} />}>
       <ShopsSection params={params} searchParams={searchParams} />
     </Suspense>
   );

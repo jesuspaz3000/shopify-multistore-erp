@@ -1,5 +1,5 @@
 import Alert from '@mui/material/Alert';
-import Skeleton from '@mui/material/Skeleton';
+import { ProductFormSkeleton } from '@/components/skeletons';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
@@ -13,7 +13,7 @@ type Props = PageProps<'/[tenant]/[shop]/products/new'>;
 
 export default function NewProductPage({ params }: Props) {
   return (
-    <Suspense fallback={<Skeleton variant="rounded" height={420} />}>
+    <Suspense fallback={<ProductFormSkeleton />}>
       <NewProduct params={params} />
     </Suspense>
   );

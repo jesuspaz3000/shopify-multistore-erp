@@ -44,6 +44,7 @@ export function initialState(product?: ProductResponse): ProductFormState {
   const variants: VariantDraft[] = product.variants.map((v) => ({
     uid: newUid('v'),
     id: v.id,
+    available: v.available,
     values: Object.fromEntries(
       options.map((o, i) => [o.uid, o.values.find((x) => x.name.toLowerCase() === v.optionValues[i]?.toLowerCase())?.uid ?? '']),
     ),

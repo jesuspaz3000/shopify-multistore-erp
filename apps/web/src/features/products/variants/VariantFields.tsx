@@ -3,6 +3,7 @@
 import { WEIGHT_UNITS } from '@erp/contracts';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Grid from '@mui/material/Grid';
@@ -10,6 +11,7 @@ import InputAdornment from '@mui/material/InputAdornment';
 import MenuItem from '@mui/material/MenuItem';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import Link from '@/components/ui/Link';
 import { WEIGHT_UNIT_LABELS } from '../product-labels';
 import { profitAndMargin, type VariantFields } from './variant-ops';
 
@@ -97,7 +99,14 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function InventoryFields({ fields, onChange, errors, disabled }: Props) {
+type InventoryProps = Props & {
+  /** Disponible total en bodegas (variante ya guardada). */
+  available?: number;
+  /** Página de Inventario para ajustar las cantidades. */
+  inventoryHref?: string;
+};
+
+export function InventoryFields({ fields, onChange, errors, disabled, available, inventoryHref }: InventoryProps) {
   return (
     <Grid container spacing={2}>
       <Grid size={12}>
@@ -107,8 +116,26 @@ export function InventoryFields({ fields, onChange, errors, disabled }: Props) {
           label="Controlar cantidad"
         />
         {fields.tracked && (
-          <Alert severity="info" variant="outlined" sx={{ mt: 1 }}>
-            Las cantidades por bodega se registran en <strong>Inventario</strong>.
+          <Alert
+            severity="info"
+            variant="outlined"
+            sx={{ mt: 1 }}
+            action={
+              inventoryHref && available !== undefined ? (
+                <Button component={Link} href={inventoryHref} size="small" color="inherit">
+                  Ajustar
+                </Button>
+              ) : undefined
+            }
+          >
+            {available !== undefined ? (
+              <>
+                <strong>{available}</strong> disponible{available === 1 ? '' : 's'} sumando todas las bodegas. Las cantidades se
+                ajustan en Inventario.
+              </>
+            ) : (
+              <>Al guardar, registra las cantidades por bodega en <strong>Inventario</strong>.</>
+            )}
           </Alert>
         )}
       </Grid>

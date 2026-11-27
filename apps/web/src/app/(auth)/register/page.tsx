@@ -1,7 +1,7 @@
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
-import Skeleton from '@mui/material/Skeleton';
 import Stack from '@mui/material/Stack';
+import { AuthFormSkeleton } from '@/components/skeletons';
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import TextLink from '@/components/ui/TextLink';
@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: 'Crear cuenta' };
 
 export default function RegisterPage() {
   return (
-    <Suspense fallback={<Skeleton variant="rounded" height={360} />}>
+    <Suspense fallback={<AuthFormSkeleton fields={5} />}>
       <RegisterGate />
     </Suspense>
   );

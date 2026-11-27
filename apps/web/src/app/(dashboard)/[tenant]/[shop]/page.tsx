@@ -1,4 +1,4 @@
-import Skeleton from '@mui/material/Skeleton';
+import { OverviewSkeleton } from '@/components/skeletons';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: 'Resumen' };
 // Los datos se leen dentro de <Suspense>: la página aparece al instante con un placeholder.
 export default function OverviewPage({ params }: PageProps<'/[tenant]/[shop]'>) {
   return (
-    <Suspense fallback={<Skeleton variant="rounded" height={160} />}>
+    <Suspense fallback={<OverviewSkeleton />}>
       <Overview params={params} />
     </Suspense>
   );

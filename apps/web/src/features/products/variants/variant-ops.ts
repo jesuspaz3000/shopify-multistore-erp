@@ -30,6 +30,8 @@ export type VariantDraft = {
   /** uid de opción -> uid de valor. */
   values: Record<string, string>;
   fields: VariantFields;
+  /** Disponible total en bodegas (solo variantes guardadas; el stock se ajusta en Inventario). */
+  available?: number;
 };
 
 let counter = 0;
