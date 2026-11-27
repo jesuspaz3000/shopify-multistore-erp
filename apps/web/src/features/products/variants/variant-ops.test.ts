@@ -17,7 +17,9 @@ const opt = (uid: string, name: string, values: string[]): OptionDraft => ({
   values: values.map((v) => ({ uid: `${uid}:${v}`, name: v })),
 });
 const labels = (variants: VariantDraft[], options: OptionDraft[]) => variants.map((v) => variantLabel(v, options));
-const single = (): VariantDraft[] => [{ uid: 'base', id: 7, values: {}, fields: { ...emptyFields(), price: '20', sku: 'BASE' } }];
+const single = (): VariantDraft[] => [
+  { uid: 'base', id: 7, values: {}, fields: { ...emptyFields(), price: '20', compareAtPrice: '25', sku: 'BASE' } },
+];
 
 describe('applyOptionChange (comportamiento de Shopify)', () => {
   it('la primera opción convierte la variante única en la primera combinación (conserva id y datos)', () => {
@@ -27,7 +29,9 @@ describe('applyOptionChange (comportamiento de Shopify)', () => {
     expect(result[0]).toMatchObject({ id: 7, fields: { sku: 'BASE', price: '20' } });
     // La nueva copia el precio pero no el SKU.
     expect(result[1].id).toBeUndefined();
-    expect(result[1].fields).toMatchObject({ sku: '', price: '20' });
+    // Ni el precio comparativo (oferta propia de cada variante: copiado podría quedar inválido).
+    expect(result[1].fields).toMatchObject({ sku: '', price: '20', compareAtPrice: '' });
+    expect(result[0].fields.compareAtPrice).toBe('25');
   });
 
   it('agregar un valor genera solo las combinaciones con ese valor', () => {

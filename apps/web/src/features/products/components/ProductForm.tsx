@@ -20,6 +20,7 @@ import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import Link from '@/components/ui/Link';
 import { ApiError } from '@/lib/http';
+import { useUiStore } from '@/stores/UiStoreProvider';
 import { createProduct, deleteProduct, updateProduct } from '../api/products.api';
 import { PRODUCT_STATUS_LABELS } from '../product-labels';
 import { InventoryFields, PricingFields, ShippingFields } from '../variants/VariantFields';
@@ -68,6 +69,7 @@ export default function ProductForm({ basePath, tenant, product, currency, canWr
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const initialRef = useRef(product);
+  const notify = useUiStore((s) => s.notify);
   const disabled = !canWrite;
 
   // Next 16 conserva las páginas ocultas (<Activity>): al salir se descarta lo escrito,
@@ -122,8 +124,9 @@ export default function ProductForm({ basePath, tenant, product, currency, canWr
         router.refresh();
       } else {
         const saved = await createProduct(tenant, input);
-        router.push(`${basePath}/${saved.id}`);
-        return; // el formulario se descarta al salir
+        notify(`Producto "${saved.title}" creado`);
+        router.push(basePath); // a la lista (el formulario se descarta al salir)
+        return;
       }
     } catch (error) {
       if (error instanceof ApiError) {
@@ -142,8 +145,8 @@ export default function ProductForm({ basePath, tenant, product, currency, canWr
     setDeleteError(null);
     try {
       await deleteProduct(tenant, product.id);
+      notify(`Producto "${product.title}" eliminado`);
       router.push(basePath);
-      router.refresh();
     } catch (error) {
       setDeleteError(error instanceof ApiError ? error.message : 'No se pudo eliminar el producto');
       setDeleting(false);

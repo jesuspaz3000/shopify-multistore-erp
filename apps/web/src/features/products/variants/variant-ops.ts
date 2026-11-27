@@ -51,8 +51,12 @@ export const emptyFields = (): VariantFields => ({
   weightUnit: 'KILOGRAMS',
 });
 
-/** Variante nueva a partir de otra: copia precios y envío, no identificadores (SKU, código de barras). */
-const fromTemplate = (fields: VariantFields): VariantFields => ({ ...fields, sku: '', barcode: '' });
+/**
+ * Variante nueva a partir de otra: copia precio, costo, inventario y envío. No copia identificadores
+ * (SKU, código de barras) ni el precio comparativo: es una oferta propia de cada variante y, copiado,
+ * puede quedar menor o igual que el precio de la nueva (inválido).
+ */
+const fromTemplate = (fields: VariantFields): VariantFields => ({ ...fields, sku: '', barcode: '', compareAtPrice: '' });
 
 export const comboKey = (variant: VariantDraft, options: OptionDraft[]) => options.map((o) => variant.values[o.uid]).join('|');
 

@@ -6,6 +6,7 @@ import AppBar from '@mui/material/AppBar';
 import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
+import Snackbar from '@mui/material/Snackbar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import { useParams } from 'next/navigation';
@@ -33,6 +34,8 @@ export default function AppShell({ me, membership, shops, children }: AppShellPr
   const mobileNavOpen = useUiStore((s) => s.mobileNavOpen);
   const setMobileNavOpen = useUiStore((s) => s.setMobileNavOpen);
   const toggleMobileNav = useUiStore((s) => s.toggleMobileNav);
+  const notice = useUiStore((s) => s.notice);
+  const clearNotice = useUiStore((s) => s.clearNotice);
 
   const drawerContent = (
     <>
@@ -88,6 +91,8 @@ export default function AppShell({ me, membership, shops, children }: AppShellPr
         <Toolbar />
         <Box sx={{ p: { xs: 2, sm: 3 } }}>{children}</Box>
       </Box>
+
+      <Snackbar open={!!notice} autoHideDuration={3500} onClose={(_, reason) => reason !== 'clickaway' && clearNotice()} message={notice} />
     </Box>
   );
 }

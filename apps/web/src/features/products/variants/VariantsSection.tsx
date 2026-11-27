@@ -50,6 +50,17 @@ type Props = {
   disabled?: boolean;
 };
 
+/** Nombre visible de cada campo de variante (para los mensajes de error de la fila). */
+const FIELD_LABELS: Record<string, string> = {
+  price: 'Precio',
+  compareAtPrice: 'Precio comparativo',
+  cost: 'Costo',
+  sku: 'SKU',
+  barcode: 'Código de barras',
+  weight: 'Peso',
+  optionValues: 'Opciones',
+};
+
 /** Disponible (suma de bodegas) de variantes guardadas que controlan stock; "—" si no aplica. */
 function availableLabel(variants: VariantDraft[]): string {
   const counted = variants.filter((v) => v.fields.tracked && v.available !== undefined);
@@ -144,9 +155,20 @@ export default function VariantsSection({ options, variants, onChange, errors, c
             {label}
           </Link>
           {invalid && (
-            <Typography variant="caption" sx={{ color: 'error.main', display: 'block' }}>
-              Revisa esta variante
-            </Typography>
+            // El motivo real (no solo "hay un error"); clic = abrir la variante para corregirlo.
+            <Link
+              component="button"
+              type="button"
+              variant="caption"
+              color="error"
+              underline="hover"
+              onClick={() => setOpenVariant(variant.uid)}
+              sx={{ display: 'block', textAlign: 'left' }}
+            >
+              {Object.entries(errorsOf(errors, variant.uid))
+                .map(([field, message]) => `${FIELD_LABELS[field] ?? field}: ${message}`)
+                .join(' · ')}
+            </Link>
           )}
         </TableCell>
         <TableCell>
@@ -155,7 +177,9 @@ export default function VariantsSection({ options, variants, onChange, errors, c
           })}
         </TableCell>
         <TableCell align="right">{availableLabel([variant])}</TableCell>
-        <TableCell sx={{ color: variant.fields.sku ? 'text.primary' : 'text.disabled' }}>{variant.fields.sku || 'Sin SKU'}</TableCell>
+        <TableCell sx={{ color: variant.fields.sku ? 'text.primary' : 'text.disabled', whiteSpace: 'nowrap' }}>
+          {variant.fields.sku || 'Sin SKU'}
+        </TableCell>
       </TableRow>
     );
   };
