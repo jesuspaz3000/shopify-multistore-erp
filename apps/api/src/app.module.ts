@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { envSchema } from './config/env.schema.js';
 import { AuditModule } from './modules/audit/index.js';
 import { IdentityModule } from './modules/identity/index.js';
+import { InventoryModule } from './modules/inventory/index.js';
 import { ShopsModule } from './modules/shops/index.js';
 import { HealthModule } from './shared/health/health.module.js';
 import { RateLimitModule } from './shared/http/rate-limit.js';
@@ -21,6 +22,7 @@ import { RateLimitModule } from './shared/http/rate-limit.js';
     AuditModule,
     IdentityModule,
     ShopsModule,
+    InventoryModule,
   ],
 })
 export class AppModule {}

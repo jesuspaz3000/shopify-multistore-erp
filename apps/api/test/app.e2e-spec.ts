@@ -157,6 +157,63 @@ describe('API (e2e)', () => {
       // Sin sesión: 401.
       await request(app.getHttpServer()).get(`/tenants/${a.slug}/shops`).expect(401);
     });
+
+    it('bodegas: crear, código único, tiendas que abastece con su regla de stock y baja lógica', async () => {
+      const a = await registerCompany('Empresa Bodegas E2E');
+      const b = await registerCompany('Empresa Bodegas B E2E');
+      const base = `/tenants/${a.slug}/locations`;
+      const shopA = (await a.agent.post(`/tenants/${a.slug}/shops`).send({ name: 'Tienda Uno', currencyCode: 'USD' }).expect(201)).body;
+      const shopA2 = (await a.agent.post(`/tenants/${a.slug}/shops`).send({ name: 'Tienda Dos', currencyCode: 'USD' }).expect(201)).body;
+      const shopB = (await b.agent.post(`/tenants/${b.slug}/shops`).send({ name: 'Tienda B', currencyCode: 'USD' }).expect(201)).body;
+
+      const created = (
+        await a.agent.post(base).send({ code: 'bod-lima-01', name: 'Bodega Lima', city: 'Lima', countryCode: 'pe', phone: '' }).expect(201)
+      ).body;
+      expect(created).toMatchObject({ code: 'BOD-LIMA-01', type: 'warehouse', countryCode: 'PE', phone: null, isActive: true, shops: [] });
+      // El código es único por empresa (sin distinguir mayúsculas), pero otra empresa puede repetirlo.
+      await a.agent.post(base).send({ code: 'BOD-LIMA-01', name: 'Otra' }).expect(409);
+      await b.agent.post(`/tenants/${b.slug}/locations`).send({ code: 'BOD-LIMA-01', name: 'Bodega B' }).expect(201);
+      await a.agent.post(base).send({ code: 'con espacios', name: 'X' }).expect(400);
+      await a.agent.post(base).send({ code: 'BOD-CUSCO', name: 'Bodega Cusco', type: '3pl' }).expect(201);
+
+      expect((await a.agent.get(`${base}?q=lima`).expect(200)).body).toMatchObject({ total: 1, items: [{ code: 'BOD-LIMA-01' }] });
+      expect((await a.agent.get(`${base}?pageSize=1&page=2`).expect(200)).body).toMatchObject({ total: 2, totalPages: 2 });
+
+      // Tiendas que abastece: cada modo exige sus parámetros; tiendas de otra empresa no cuentan.
+      const url = `${base}/${created.id}/shops`;
+      await a.agent.put(url).send({ shops: [{ shopId: shopA.id, stockSyncMode: 'PERCENTAGE' }] }).expect(400);
+      await a.agent.put(url).send({ shops: [{ shopId: shopB.id, stockSyncMode: 'MIRROR' }] }).expect(400);
+      const linked = (
+        await a.agent
+          .put(url)
+          .send({
+            shops: [
+              { shopId: shopA.id, stockSyncMode: 'PERCENTAGE', stockPercentage: 50 },
+              { shopId: shopA2.id, stockSyncMode: 'BUFFER', stockBuffer: 3 },
+            ],
+          })
+          .expect(200)
+      ).body;
+      expect(linked.shops).toEqual([
+        { shopId: shopA2.id, stockSyncMode: 'BUFFER', stockPercentage: null, stockBuffer: 3 },
+        { shopId: shopA.id, stockSyncMode: 'PERCENTAGE', stockPercentage: 50, stockBuffer: null },
+      ]);
+      // Reemplazar: la que no viene se desvincula y la otra cambia de regla.
+      const replaced = (await a.agent.put(url).send({ shops: [{ shopId: shopA.id, stockSyncMode: 'MIRROR' }] }).expect(200)).body;
+      expect(replaced.shops).toEqual([{ shopId: shopA.id, stockSyncMode: 'MIRROR', stockPercentage: null, stockBuffer: null }]);
+
+      expect((await a.agent.patch(`${base}/${created.id}`).send({ isActive: false }).expect(200)).body.isActive).toBe(false);
+      expect((await a.agent.get(`${base}/options`).expect(200)).body.map((l: { code: string }) => l.code)).toEqual(['BOD-CUSCO']);
+
+      // Otra empresa no la ve ni la toca.
+      await b.agent.patch(`/tenants/${b.slug}/locations/${created.id}`).send({ name: 'Hackeada' }).expect(404);
+
+      // Baja lógica: desaparece, libera el código y ya no se puede editar.
+      await a.agent.delete(`${base}/${created.id}`).expect(204);
+      await a.agent.patch(`${base}/${created.id}`).send({ name: 'Otro nombre' }).expect(404);
+      expect((await a.agent.get(base).expect(200)).body.total).toBe(1);
+      await a.agent.post(base).send({ code: 'BOD-LIMA-01', name: 'Bodega Lima nueva' }).expect(201);
+    });
   });
 
   describe('usuarios e invitaciones', () => {

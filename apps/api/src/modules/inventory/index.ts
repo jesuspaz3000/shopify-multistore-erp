@@ -1,2 +1,3 @@
-// API publica de inventario (items, bodegas, shop_locations, niveles, kardex): lo unico que otros modulos pueden importar.
-export {};
+// API pública de inventario: lo único que otros módulos pueden importar.
+export { InventoryModule } from './inventory.module.js';
+export { LocationsService } from './locations/locations.service.js';

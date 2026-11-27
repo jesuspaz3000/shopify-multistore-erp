@@ -2,3 +2,4 @@
 export * from '../../../modules/identity/identity.schema.js';
 export * from '../../../modules/shops/shops.schema.js';
 export * from '../../../modules/audit/audit.schema.js';
+export * from '../../../modules/inventory/infrastructure/persistence/inventory.schema.js';
