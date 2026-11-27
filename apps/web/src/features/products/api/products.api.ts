@@ -1,4 +1,4 @@
-import type { ProductInput, ProductResponse } from '@erp/contracts';
+import type { ProductBulkInput, ProductBulkResponse, ProductInput, ProductResponse } from '@erp/contracts';
 import { http } from '@/lib/http';
 
 // Mutaciones del catálogo (Client Components).
@@ -10,3 +10,5 @@ export const updateProduct = (tenant: string, productId: number, input: ProductI
   http.put<ProductResponse>(`${base(tenant)}/${productId}`, input);
 
 export const deleteProduct = (tenant: string, productId: number) => http.delete<void>(`${base(tenant)}/${productId}`);
+
+export const bulkProducts = (tenant: string, input: ProductBulkInput) => http.post<ProductBulkResponse>(`${base(tenant)}/bulk`, input);

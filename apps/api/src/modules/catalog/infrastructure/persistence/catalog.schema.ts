@@ -22,7 +22,7 @@ export const products = pgTable(
     productType: varchar({ length: 255 }),
     categoryGid: varchar({ length: 255 }), // gid://shopify/TaxonomyCategory/...
     handle: varchar({ length: 255 }).notNull(),
-    status: varchar({ length: 20 }).notNull().default('DRAFT'), // ACTIVE | DRAFT | ARCHIVED
+    status: varchar({ length: 20 }).notNull().default('ACTIVE'), // ACTIVE | DRAFT | ARCHIVED
     tags: text().array().notNull().default(sql`'{}'::text[]`),
     seoTitle: varchar({ length: 255 }),
     seoDescription: text(),
@@ -130,6 +130,48 @@ export const productVariants = pgTable(
     index('product_variants_tenant_barcode_idx').on(t.tenantId, t.barcode),
     index('product_variants_tenant_deleted_idx').on(t.tenantId, t.deletedAt),
   ],
+);
+
+/**
+ * Archivo multimedia MAESTRO (copia en el almacenamiento del ERP, desde donde se sube a cada tienda).
+ * `storage_key` es la ruta interna del archivo (disco local o S3): la URL se arma al servirlo.
+ */
+export const media = pgTable(
+  'media',
+  {
+    id: id(),
+    tenantId: fk()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    mediaContentType: varchar({ length: 20 }).notNull().default('IMAGE'), // IMAGE | VIDEO | EXTERNAL_VIDEO | MODEL_3D
+    storageKey: varchar({ length: 500 }).notNull(),
+    mimeType: varchar({ length: 100 }).notNull(),
+    alt: varchar({ length: 512 }),
+    width: integer(),
+    height: integer(),
+    fileSize: integer().notNull(),
+    checksumSha256: varchar({ length: 64 }).notNull(),
+    ...timestamps,
+  },
+  (t) => [index('media_tenant_checksum_idx').on(t.tenantId, t.checksumSha256)],
+);
+
+/** Product.media: imágenes del producto en orden (posición 1 = principal). */
+export const productMedia = pgTable(
+  'product_media',
+  {
+    tenantId: fk()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    productId: fk()
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    mediaId: fk()
+      .notNull()
+      .references(() => media.id, { onDelete: 'cascade' }),
+    position: integer().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.productId, t.mediaId] }), index('product_media_tenant_media_idx').on(t.tenantId, t.mediaId)],
 );
 
 /** ProductVariant.selectedOptions: variante <-> valores de opción (Rojo + XL). */

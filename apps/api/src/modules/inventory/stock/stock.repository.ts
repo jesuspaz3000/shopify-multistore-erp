@@ -202,14 +202,34 @@ export class StockRepository {
     return { items, total: rows };
   }
 
-  /** Disponible total (todas las bodegas) por ítem. */
-  async availableByItem(tenantId: number, itemIds: number[], tx: Executor = this.db): Promise<Map<number, number>> {
-    if (itemIds.length === 0) return new Map();
+  /** De las bodegas indicadas, las vigentes y activas de la empresa. */
+  async activeLocationIds(tenantId: number, locationIds: number[], tx: Executor = this.db): Promise<Set<number>> {
+    if (locationIds.length === 0) return new Set();
     const rows = await tx
-      .select({ itemId: inventoryLevels.inventoryItemId, available: total(inventoryLevels.available) })
+      .select({ id: locations.id })
+      .from(locations)
+      .where(
+        and(eq(locations.tenantId, tenantId), inArray(locations.id, locationIds), isNull(locations.deletedAt), eq(locations.isActive, true)),
+      );
+    return new Set(rows.map((r) => r.id));
+  }
+
+  /** Crea niveles con stock inicial (ítems recién creados: aún no tienen niveles). */
+  async insertLevels(rows: { tenantId: number; inventoryItemId: number; locationId: number; quantity: number }[], tx: Tx) {
+    if (rows.length === 0) return;
+    await tx
+      .insert(inventoryLevels)
+      .values(rows.map(({ quantity, ...r }) => ({ ...r, available: quantity, onHand: quantity })));
+  }
+
+  /** Disponible por bodega (vigente) de cada ítem. */
+  async levelsByItem(tenantId: number, itemIds: number[], tx: Executor = this.db) {
+    if (itemIds.length === 0) return [];
+    return tx
+      .select({ itemId: inventoryLevels.inventoryItemId, locationId: inventoryLevels.locationId, available: inventoryLevels.available })
       .from(inventoryLevels)
-      .where(and(eq(inventoryLevels.tenantId, tenantId), inArray(inventoryLevels.inventoryItemId, itemIds)))
-      .groupBy(inventoryLevels.inventoryItemId);
-    return new Map(rows.map((r) => [r.itemId, r.available]));
+      .innerJoin(locations, eq(locations.id, inventoryLevels.locationId))
+      .where(and(eq(inventoryLevels.tenantId, tenantId), inArray(inventoryLevels.inventoryItemId, itemIds), isNull(locations.deletedAt)))
+      .orderBy(asc(locations.name), asc(locations.id));
   }
 }

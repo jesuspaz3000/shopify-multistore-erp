@@ -23,5 +23,7 @@ export function createHttp(instance: AxiosInstance) {
     put: <T>(url: string, body?: unknown) => request<T>({ method: 'PUT', url, data: body }),
     patch: <T>(url: string, body?: unknown) => request<T>({ method: 'PATCH', url, data: body }),
     delete: <T>(url: string) => request<T>({ method: 'DELETE', url }),
+    /** Subida de archivos (multipart): más tiempo que una petición normal (imágenes de hasta 20 MB). */
+    upload: <T>(url: string, form: FormData) => request<T>({ method: 'POST', url, data: form, timeout: 120_000 }),
   };
 }

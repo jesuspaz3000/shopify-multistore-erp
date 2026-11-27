@@ -58,6 +58,23 @@ export class ProductsRepository {
           variantsCount: count(productVariants.id),
           minPrice: min(productVariants.basePrice),
           maxPrice: max(productVariants.basePrice),
+          // Subconsultas con columnas calificadas a mano ("products"."id"): ver nota en filter().
+          featuredMediaId: sql<number | null>`(
+            select pm.media_id from product_media pm
+            where pm.product_id = "products"."id" order by pm.position limit 1
+          )::bigint`.mapWith(Number),
+          trackedVariants: sql<number>`(
+            select count(*) from product_variants pv
+            join inventory_items ii on ii.id = pv.inventory_item_id
+            where pv.product_id = "products"."id" and pv.deleted_at is null and ii.tracked
+          )::int`,
+          available: sql<number>`(
+            select coalesce(sum(il.available), 0) from product_variants pv
+            join inventory_items ii on ii.id = pv.inventory_item_id
+            join inventory_levels il on il.inventory_item_id = ii.id
+            join locations l on l.id = il.location_id
+            where pv.product_id = "products"."id" and pv.deleted_at is null and ii.tracked and l.deleted_at is null
+          )::int`,
         })
         .from(products)
         .leftJoin(productVariants, and(eq(productVariants.productId, products.id), isNull(productVariants.deletedAt)))
@@ -250,7 +267,7 @@ export class ProductsRepository {
     variant: VariantValues,
     item: InventoryItemValues,
     tx: Executor,
-  ): Promise<number> {
+  ): Promise<{ variantId: number; inventoryItemId: number }> {
     const [created] = await tx
       .insert(inventoryItems)
       .values({ tenantId, ...item })
@@ -259,7 +276,53 @@ export class ProductsRepository {
       .insert(productVariants)
       .values({ tenantId, productId, inventoryItemId: created.id, ...variant })
       .returning({ id: productVariants.id });
-    return row.id;
+    return { variantId: row.id, inventoryItemId: created.id };
+  }
+
+  /** Cambia el estado de varios productos vigentes de la empresa; devuelve los afectados. */
+  async setStatus(tenantId: number, ids: number[], status: string, tx: Executor): Promise<number[]> {
+    const rows = await tx
+      .update(products)
+      .set({ status, version: sql`${products.version} + 1` })
+      .where(and(this.filter(tenantId), inArray(products.id, ids)))
+      .returning({ id: products.id });
+    return rows.map((r) => r.id);
+  }
+
+  /** Productos vigentes de la empresa entre los indicados. */
+  async existingIds(tenantId: number, ids: number[], tx: Executor = this.db): Promise<number[]> {
+    const rows = await tx
+      .select({ id: products.id })
+      .from(products)
+      .where(and(this.filter(tenantId), inArray(products.id, ids)));
+    return rows.map((r) => r.id);
+  }
+
+  /** Tipos, proveedores y etiquetas ya usados en el catálogo (sugerencias del formulario). */
+  async facets(tenantId: number, tx: Executor = this.db) {
+    const active = this.filter(tenantId);
+    const [types, vendors, tags] = await Promise.all([
+      tx
+        .selectDistinct({ value: products.productType })
+        .from(products)
+        .where(and(active, sql`${products.productType} is not null`))
+        .orderBy(asc(products.productType))
+        .limit(200),
+      tx
+        .selectDistinct({ value: products.vendor })
+        .from(products)
+        .where(and(active, sql`${products.vendor} is not null`))
+        .orderBy(asc(products.vendor))
+        .limit(200),
+      tx
+        .selectDistinct({ value: sql<string>`unnest(${products.tags})` })
+        .from(products)
+        .where(active)
+        .orderBy(sql`1`)
+        .limit(500),
+    ]);
+    const values = (rows: { value: string | null }[]) => rows.flatMap((r) => (r.value ? [r.value] : []));
+    return { productTypes: values(types), vendors: values(vendors), tags: values(tags) };
   }
 
   async updateVariant(

@@ -10,6 +10,6 @@ import { ShopsService } from './shops.service.js';
   imports: [DatabaseModule, AuditModule, IdentityModule],
   controllers: [ShopsController],
   providers: [ShopsRepository, ShopsService],
-  exports: [ShopsService],
+  exports: [ShopsService, ShopsRepository],
 })
 export class ShopsModule {}

@@ -1,11 +1,10 @@
 'use client';
 
-import { ADJUSTMENT_REASONS, type AdjustmentReason, type InventoryRow, type Paginated } from '@erp/contracts';
+import { type AdjustmentReason, type InventoryRow, MANUAL_ADJUSTMENT_REASONS, type Paginated } from '@erp/contracts';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
-import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
@@ -18,6 +17,7 @@ import TextLink from '@/components/ui/TextLink';
 import { ApiError } from '@/lib/http';
 import { adjustInventory } from '../api/inventory.api';
 import { parseAvailableInput, REASON_LABELS } from '../inventory-labels';
+import { useUiStore } from '@/stores/UiStoreProvider';
 
 type Props = {
   tenant: string;
@@ -37,11 +37,12 @@ type Edit = { text: string; original: number; row: InventoryRow };
 export default function StockTable({ tenant, shopPath, page, searchQuery, locationId, canWrite }: Props) {
   const router = useRouter();
   const [edits, setEdits] = useState<Record<number, Edit>>({});
-  const [reason, setReason] = useState<AdjustmentReason>('correction');
+  const [reason, setReason] = useState<Exclude<AdjustmentReason, 'initial'>>('correction');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  // Aviso global (AppShell): sobrevive al router.refresh() que vuelve a montar la página.
+  const setToast = useUiStore((s) => s.notify);
   // Cantidades que devolvió el último guardado: se muestran al instante, hasta que llega la página refrescada.
   const [saved, setSaved] = useState<{ forPage: Paginated<InventoryRow>; levels: Record<number, { available: number; onHand: number }> }>({
     forPage: page,
@@ -179,8 +180,8 @@ export default function StockTable({ tenant, shopPath, page, searchQuery, locati
           <Typography variant="body2" sx={{ fontWeight: 600, mr: 'auto' }}>
             {pending.length} cambio{pending.length === 1 ? '' : 's'} sin guardar
           </Typography>
-          <TextField select size="small" label="Motivo" value={reason} onChange={(e) => setReason(e.target.value as AdjustmentReason)} sx={{ minWidth: 210 }}>
-            {ADJUSTMENT_REASONS.map((r) => (
+          <TextField select size="small" label="Motivo" value={reason} onChange={(e) => setReason(e.target.value as Exclude<AdjustmentReason, 'initial'>)} sx={{ minWidth: 210 }}>
+            {MANUAL_ADJUSTMENT_REASONS.map((r) => (
               <MenuItem key={r} value={r}>
                 {REASON_LABELS[r]}
               </MenuItem>
@@ -208,7 +209,6 @@ export default function StockTable({ tenant, shopPath, page, searchQuery, locati
           )}
         </Paper>
       )}
-      <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast(null)} message={toast} />
     </Stack>
   );
 }

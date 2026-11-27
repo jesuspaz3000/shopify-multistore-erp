@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   type CreateShopData,
+  missingShopifyScopes,
   type Paginated,
   paginated,
   type PaginationQuery,
@@ -25,6 +26,18 @@ export function toShopResponse(row: ShopRow): ShopResponse {
     ianaTimezone: row.ianaTimezone,
     status: row.status as ShopStatus,
     myshopifyDomain: row.myshopifyDomain,
+    shopify:
+      row.status === 'installed' && row.shopifyClientId
+        ? {
+            clientId: row.shopifyClientId,
+            apiVersion: row.apiVersion ?? '',
+            scopes: row.grantedScopes ?? [],
+            missingScopes: missingShopifyScopes(row.grantedScopes ?? []),
+            planName: row.planDisplayName,
+            primaryDomain: row.primaryDomain,
+            connectedAt: (row.installedAt ?? row.updatedAt).toISOString(),
+          }
+        : null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -93,6 +106,9 @@ export class ShopsService {
 
   async update(tenant: TenantContext, userId: number, shopId: number, input: UpdateShopData): Promise<ShopResponse> {
     const current = await this.findAccessible(tenant, shopId);
+    if (current.status === 'installed') {
+      throw new ConflictException('Los datos de una tienda conectada vienen de Shopify: usa "Actualizar desde Shopify"');
+    }
     const changes = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)) as UpdateShopData;
     if (Object.keys(changes).length === 0) return toShopResponse(current);
     input = changes;
@@ -141,7 +157,7 @@ export class ShopsService {
   }
 
   /** Tienda de la empresa a la que el usuario tiene acceso; 404 en cualquier otro caso. */
-  private async findAccessible(tenant: TenantContext, shopId: number): Promise<ShopRow> {
+  async findAccessible(tenant: TenantContext, shopId: number): Promise<ShopRow> {
     const shop = await this.repo.findById(tenant.tenantId, shopId);
     if (!shop || (tenant.allowedShopIds && !tenant.allowedShopIds.includes(shopId))) {
       throw new NotFoundException('Tienda no encontrada');

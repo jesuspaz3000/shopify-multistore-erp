@@ -10,7 +10,6 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
-import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
@@ -24,6 +23,7 @@ import { roleLabel, summarizePermissions } from '@/features/tenant/role-labels';
 import { ApiError } from '@/lib/http';
 import { deleteRole } from '../api/members.api';
 import RoleDialog from './RoleDialog';
+import { useUiStore } from '@/stores/UiStoreProvider';
 
 type Props = {
   tenant: string;
@@ -43,7 +43,8 @@ export default function RolesManager({ tenant, page, searchQuery, myPermissions,
   const [deleting, setDeleting] = useState<RoleResponse | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  // Aviso global (AppShell): sobrevive al router.refresh() que vuelve a montar la página.
+  const setToast = useUiStore((s) => s.notify);
 
   const done = (message: string) => {
     setDialog(null);
@@ -193,8 +194,6 @@ export default function RolesManager({ tenant, page, searchQuery, myPermissions,
           setDeleteError(null);
         }}
       />
-
-      <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast(null)} message={toast} />
     </Stack>
   );
 }

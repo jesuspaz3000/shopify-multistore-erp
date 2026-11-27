@@ -35,3 +35,6 @@ Thumbs.db
 
 # Docker volumes locales
 .docker-data/
+
+# Archivos subidos en desarrollo (imágenes de productos)
+/storage/

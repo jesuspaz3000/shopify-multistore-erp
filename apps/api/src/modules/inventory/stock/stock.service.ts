@@ -11,6 +11,7 @@ import {
   type Paginated,
   paginated,
 } from '@erp/contracts';
+import type { Tx } from '../../../shared/database/database.module.js';
 import type { TenantContext } from '../../../shared/http/request-context.js';
 import { StockRepository } from './stock.repository.js';
 
@@ -100,9 +101,45 @@ export class StockService {
     );
   }
 
-  /** Disponible total por ítem (lo usa el catálogo en la ficha de producto). */
-  availableByItem(tenantId: number, itemIds: number[]): Promise<Map<number, number>> {
-    return this.repo.availableByItem(tenantId, itemIds);
+  /** Disponible por bodega de cada ítem (lo usa el catálogo en la ficha de producto). */
+  async levelsByItem(tenantId: number, itemIds: number[]): Promise<Map<number, { locationId: number; available: number }[]>> {
+    const result = new Map<number, { locationId: number; available: number }[]>(itemIds.map((id) => [id, []]));
+    for (const { itemId, ...level } of await this.repo.levelsByItem(tenantId, itemIds)) result.get(itemId)?.push(level);
+    return result;
+  }
+
+  /**
+   * Stock inicial de ítems recién creados (al crear un producto o una variante nueva), dentro de la
+   * transacción del catálogo: si una bodega no es válida, no se crea nada. Queda en el kardex como "initial".
+   */
+  async seedInitialStock(
+    tenantId: number,
+    userId: number,
+    entries: { inventoryItemId: number; locationId: number; quantity: number }[],
+    tx: Tx,
+  ): Promise<void> {
+    const withStock = entries.filter((e) => e.quantity > 0);
+    if (withStock.length === 0) return;
+    const requested = [...new Set(withStock.map((e) => e.locationId))];
+    const active = await this.repo.activeLocationIds(tenantId, requested, tx);
+    if (requested.some((id) => !active.has(id))) {
+      throw new BadRequestException('Alguna bodega no existe o está inactiva');
+    }
+    await this.repo.insertLevels(withStock.map((e) => ({ tenantId, ...e })), tx);
+    await this.repo.insertAdjustments(
+      withStock.map((e) => ({
+        tenantId,
+        inventoryItemId: e.inventoryItemId,
+        locationId: e.locationId,
+        quantityName: 'available',
+        delta: e.quantity,
+        quantityAfter: e.quantity,
+        reason: 'initial',
+        source: 'ERP',
+        userId,
+      })),
+      tx,
+    );
   }
 
   private async activeLocation(tenant: TenantContext, locationId: number) {

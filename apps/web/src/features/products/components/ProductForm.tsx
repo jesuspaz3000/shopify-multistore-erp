@@ -1,6 +1,13 @@
 'use client';
 
-import { PRODUCT_STATUSES, productInputSchema, type ProductResponse, type ProductStatus } from '@erp/contracts';
+import {
+  type LocationOptionResponse,
+  PRODUCT_STATUSES,
+  type ProductFacetsResponse,
+  productInputSchema,
+  type ProductResponse,
+  type ProductStatus,
+} from '@erp/contracts';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
@@ -11,13 +18,13 @@ import Grid from '@mui/material/Grid';
 import IconButton from '@mui/material/IconButton';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
-import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import RichTextEditor from '@/components/ui/RichTextEditor';
 import Link from '@/components/ui/Link';
 import { ApiError } from '@/lib/http';
 import { useUiStore } from '@/stores/UiStoreProvider';
@@ -27,6 +34,7 @@ import { InventoryFields, PricingFields, ShippingFields } from '../variants/Vari
 import type { VariantFields } from '../variants/variant-ops';
 import VariantsSection from '../variants/VariantsSection';
 import { errorsOf, initialState, mapErrors, type ProductFormState, toInput } from './product-form-state';
+import MediaSection from './MediaSection';
 import SeoSection from './SeoSection';
 
 type Props = {
@@ -37,6 +45,10 @@ type Props = {
   product?: ProductResponse;
   currency: string;
   canWrite: boolean;
+  /** Bodegas activas (cantidad inicial al crear; disponible al editar). */
+  locations: LocationOptionResponse[];
+  /** Valores ya usados en el catálogo (sugerencias de tipo, proveedor y etiquetas). */
+  facets: ProductFacetsResponse;
 };
 
 const CHECK_FIELDS = 'Revisa los campos marcados';
@@ -56,7 +68,7 @@ function Section({ title, children }: { title?: string; children: ReactNode }) {
 }
 
 /** Página de producto al estilo de Shopify: contenido a la izquierda, estado y organización a la derecha. */
-export default function ProductForm({ basePath, tenant, product, currency, canWrite }: Props) {
+export default function ProductForm({ basePath, tenant, product, currency, canWrite, locations, facets }: Props) {
   const router = useRouter();
   const [state, setState] = useState<ProductFormState>(() => initialState(product));
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -67,7 +79,6 @@ export default function ProductForm({ basePath, tenant, product, currency, canWr
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
   const initialRef = useRef(product);
   const notify = useUiStore((s) => s.notify);
   const disabled = !canWrite;
@@ -120,7 +131,7 @@ export default function ProductForm({ basePath, tenant, product, currency, canWr
         setHeading(saved.title);
         setSavedHandle(saved.handle);
         initialRef.current = saved;
-        setToast('Producto guardado');
+        notify('Producto guardado');
         router.refresh();
       } else {
         const saved = await createProduct(tenant, input);
@@ -224,34 +235,42 @@ export default function ProductForm({ basePath, tenant, product, currency, canWr
                   autoFocus={!product}
                   fullWidth
                 />
-                <TextField
+                <RichTextEditor
                   label="Descripción"
                   value={state.description}
-                  onChange={(e) => set({ description: e.target.value }, ['description'])}
-                  error={!!errors.description}
-                  helperText={errors.description}
+                  onChange={(description) => set({ description }, ['description'])}
+                  error={errors.description}
                   disabled={disabled}
-                  multiline
-                  minRows={5}
-                  fullWidth
                 />
+                <MediaSection
+                  tenant={tenant}
+                  media={state.media}
+                  onChange={(media) => set({ media }, ['media'])}
+                  onAdd={(item) =>
+                    setState((prev) => (prev.media.some((m) => m.id === item.id) ? prev : { ...prev, media: [...prev.media, item] }))
+                  }
+                  disabled={disabled}
+                />
+                {errors.media && <Alert severity="error">{errors.media}</Alert>}
               </Stack>
             </Section>
 
             {/* Sin variantes, precio/inventario/envío son del producto; con variantes, de cada variante. */}
             {singleProps && (
               <>
-                <Section title="Precio">
+                <Section>
                   <PricingFields {...singleProps} />
                 </Section>
-                <Section title="Inventario">
+                <Section>
                   <InventoryFields
                     {...singleProps}
-                    available={single?.available}
+                    locations={locations}
+                    levels={single?.id === undefined ? undefined : (single.levels ?? [])}
                     inventoryHref={single?.fields.sku ? `${inventoryPath}?q=${encodeURIComponent(single.fields.sku)}` : inventoryPath}
+                    locationsHref={`/${tenant}/settings/locations`}
                   />
                 </Section>
-                <Section title="Envío">
+                <Section>
                   <ShippingFields {...singleProps} />
                 </Section>
               </>
@@ -275,6 +294,8 @@ export default function ProductForm({ basePath, tenant, product, currency, canWr
                 errors={errors}
                 currency={currency}
                 disabled={disabled}
+                locations={locations}
+                inventoryHref={inventoryPath}
               />
             </Section>
 
@@ -315,30 +336,31 @@ export default function ProductForm({ basePath, tenant, product, currency, canWr
             </Section>
             <Section title="Organización del producto">
               <Stack spacing={2}>
-                <TextField
-                  label="Tipo"
-                  value={state.productType}
-                  onChange={(e) => set({ productType: e.target.value }, ['productType'])}
-                  error={!!errors.productType}
-                  helperText={errors.productType ?? 'Ej. Poleras, Tazas'}
+                {/* Elegir uno ya usado o escribir uno nuevo (como en Shopify). */}
+                <Autocomplete
+                  freeSolo
                   disabled={disabled}
-                  fullWidth
+                  options={facets.productTypes}
+                  inputValue={state.productType}
+                  onInputChange={(_, value) => set({ productType: value }, ['productType'])}
+                  renderInput={(params) => (
+                    <TextField {...params} label="Tipo" error={!!errors.productType} helperText={errors.productType ?? 'Ej. Poleras, Tazas'} />
+                  )}
                 />
-                <TextField
-                  label="Proveedor / marca"
-                  value={state.vendor}
-                  onChange={(e) => set({ vendor: e.target.value }, ['vendor'])}
-                  error={!!errors.vendor}
-                  helperText={errors.vendor}
+                <Autocomplete
+                  freeSolo
                   disabled={disabled}
-                  fullWidth
+                  options={facets.vendors}
+                  inputValue={state.vendor}
+                  onInputChange={(_, value) => set({ vendor: value }, ['vendor'])}
+                  renderInput={(params) => <TextField {...params} label="Proveedor" error={!!errors.vendor} helperText={errors.vendor} />}
                 />
                 <Autocomplete
                   multiple
                   freeSolo
                   autoSelect
                   disabled={disabled}
-                  options={[]}
+                  options={facets.tags}
                   value={state.tags}
                   onChange={(_, tags) => set({ tags: tags.map((t) => t.trim()).filter(Boolean) }, ['tags'])}
                   renderValue={(values, getItemProps) =>
@@ -374,7 +396,6 @@ export default function ProductForm({ basePath, tenant, product, currency, canWr
           setDeleteError(null);
         }}
       />
-      <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast(null)} message={toast} />
     </Box>
   );
 }

@@ -16,7 +16,6 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
-import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
@@ -33,6 +32,7 @@ import { INVITATIONS_PREFIX } from '../table-params';
 import EditMemberDialog from './EditMemberDialog';
 import InviteDialog from './InviteDialog';
 import InviteLinkDialog from './InviteLinkDialog';
+import { useUiStore } from '@/stores/UiStoreProvider';
 
 type Props = {
   tenant: string;
@@ -68,7 +68,8 @@ export default function UsersManager({
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  // Aviso global (AppShell): sobrevive al router.refresh() que vuelve a montar la página.
+  const setToast = useUiStore((s) => s.notify);
 
   const permissionsOf = (role: string) => roles.find((r) => r.name === role)?.permissions ?? ['*'];
   const grantableRoles = roles.filter((r) => canGrant(myPermissions, r.permissions));
@@ -101,7 +102,7 @@ export default function UsersManager({
       setLink(await resendInvitation(tenant, inv.id));
       router.refresh();
     } catch (error) {
-      setToast(error instanceof ApiError ? error.message : 'No se pudo generar el link');
+      setToast(error instanceof ApiError ? error.message : 'No se pudo generar el link', 'error');
     }
   };
 
@@ -298,8 +299,6 @@ export default function UsersManager({
           setConfirmError(null);
         }}
       />
-
-      <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast(null)} message={toast} />
     </Stack>
   );
 }

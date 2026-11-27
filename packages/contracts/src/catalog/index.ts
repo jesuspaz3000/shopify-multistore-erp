@@ -17,6 +17,33 @@ export const MAX_PRODUCT_VARIANTS = 2048;
 /** Título de la variante única de un producto sin opciones (como en Shopify). */
 export const DEFAULT_VARIANT_TITLE = 'Default Title';
 
+// ---------- Multimedia ----------
+
+/** Imágenes aceptadas (el tipo real se verifica por los bytes en el servidor) y tamaño máximo (como Shopify: 20 MB). */
+export const MEDIA_ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const;
+export const MEDIA_MAX_BYTES = 20 * 1024 * 1024;
+export const MAX_PRODUCT_MEDIA = 250;
+
+/** Imagen subida. `url` es relativa a la API (en el navegador: /api + url). */
+export type MediaResponse = {
+  id: number;
+  url: string;
+  alt: string | null;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  fileSize: number;
+};
+
+/** Imagen del producto (en orden; la primera es la principal) con su texto alternativo. */
+export const productMediaInputSchema = z.object({
+  id: z.number().int().positive(),
+  alt: z
+    .union([z.literal(''), z.string().trim().max(512, 'Máximo 512 caracteres')])
+    .nullish()
+    .transform((value) => (value ? value : null)),
+});
+
 // ---------- Query ----------
 
 export const productsQuerySchema = paginationQuerySchema.extend({
@@ -99,6 +126,24 @@ export const variantInputSchema = z.object({
   taxable: z.boolean().default(true),
   weight: weightSchema,
   weightUnit: z.enum(WEIGHT_UNITS).default('KILOGRAMS'),
+  /** Aduana: país de origen (ISO 3166-1 alfa-2) y código SA (Sistema Armonizado, 6 a 13 dígitos). */
+  countryCodeOfOrigin: z
+    .union([z.literal(''), z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, 'País inválido')])
+    .nullish()
+    .transform((value) => (value ? value : null)),
+  harmonizedSystemCode: z
+    .union([z.literal(''), z.string().trim().regex(/^\d{6,13}$/, 'Entre 6 y 13 dígitos (ej. 610910)')])
+    .nullish()
+    .transform((value) => (value ? value : null)),
+  /**
+   * Stock inicial por bodega (solo variantes NUEVAS; el de las existentes se ajusta en Inventario
+   * para que quede en el kardex con su motivo).
+   */
+  quantities: z
+    .array(z.object({ locationId: z.number().int().positive(), quantity: z.number().int().min(0, 'No puede ser negativa').max(1_000_000_000) }))
+    .max(100)
+    .default([])
+    .refine((list) => new Set(list.map((q) => q.locationId)).size === list.length, 'Una bodega aparece dos veces'),
 });
 export type VariantInput = z.input<typeof variantInputSchema>;
 
@@ -108,7 +153,7 @@ export const productInputSchema = z
     description: nullableText(50_000),
     vendor: nullableText(255),
     productType: nullableText(255),
-    status: z.enum(PRODUCT_STATUSES, 'Estado inválido').default('DRAFT'),
+    status: z.enum(PRODUCT_STATUSES, 'Estado inválido').default('ACTIVE'),
     tags: z
       .array(z.string().trim().min(1).max(255))
       .max(250)
@@ -119,6 +164,11 @@ export const productInputSchema = z
       .max(MAX_PRODUCT_OPTIONS, `Máximo ${MAX_PRODUCT_OPTIONS} opciones`)
       .default([])
       .refine((list) => uniqueTexts('Opción')(list.map((o) => o.name)) === true, 'Hay dos opciones con el mismo nombre'),
+    media: z
+      .array(productMediaInputSchema)
+      .max(MAX_PRODUCT_MEDIA, `Máximo ${MAX_PRODUCT_MEDIA} imágenes`)
+      .default([])
+      .refine((list) => new Set(list.map((m) => m.id)).size === list.length, 'Una imagen aparece dos veces'),
     variants: z
       .array(variantInputSchema)
       .min(1, 'El producto necesita al menos una variante')
@@ -187,12 +237,36 @@ export type ProductListItem = {
   vendor: string | null;
   productType: string | null;
   variantsCount: number;
+  /** Imagen principal (url relativa a la API) o null. */
+  imageUrl: string | null;
   /** Rango de precios de lista de sus variantes (null si ninguna tiene precio). */
   minPrice: string | null;
   maxPrice: string | null;
   currency: string;
+  /** Variantes que controlan stock y su disponible total ("50 en existencias para 3 variantes"). */
+  trackedVariants: number;
+  available: number;
   updatedAt: string;
 };
+
+/** Acciones en bloque sobre productos seleccionados en la lista. */
+export const PRODUCT_BULK_ACTIONS = ['activate', 'draft', 'archive', 'delete'] as const;
+export type ProductBulkAction = (typeof PRODUCT_BULK_ACTIONS)[number];
+
+export const productBulkSchema = z.object({
+  action: z.enum(PRODUCT_BULK_ACTIONS, 'Acción inválida'),
+  ids: z
+    .array(z.number().int().positive())
+    .min(1, 'Selecciona al menos un producto')
+    .max(250, 'Máximo 250 productos por acción')
+    .transform((ids) => [...new Set(ids)]),
+});
+export type ProductBulkInput = z.input<typeof productBulkSchema>;
+export type ProductBulkData = z.output<typeof productBulkSchema>;
+export type ProductBulkResponse = { affected: number };
+
+/** Valores ya usados en el catálogo (sugerencias de tipo, proveedor y etiquetas). */
+export type ProductFacetsResponse = { productTypes: string[]; vendors: string[]; tags: string[] };
 
 export type VariantResponse = {
   id: number;
@@ -209,10 +283,14 @@ export type VariantResponse = {
   taxable: boolean;
   weight: string | null;
   weightUnit: WeightUnit;
+  countryCodeOfOrigin: string | null;
+  harmonizedSystemCode: string | null;
   /** Ítem de inventario de la variante (stock por bodega). */
   inventoryItemId: number;
   /** Disponible sumando todas las bodegas. */
   available: number;
+  /** Disponible en cada bodega donde la variante tiene stock registrado. */
+  levels: { locationId: number; available: number }[];
 };
 
 export type ProductResponse = {
@@ -227,6 +305,8 @@ export type ProductResponse = {
   seoTitle: string | null;
   seoDescription: string | null;
   options: { name: string; values: string[] }[];
+  /** Imágenes en orden (la primera es la principal). */
+  media: MediaResponse[];
   variants: VariantResponse[];
   /** Moneda de los precios de lista (moneda de reporte de la empresa). */
   currency: string;

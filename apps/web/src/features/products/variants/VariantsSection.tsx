@@ -1,31 +1,38 @@
-'use client';
+"use client";
 
-import { MAX_PRODUCT_OPTIONS } from '@erp/contracts';
-import AddIcon from '@mui/icons-material/Add';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Checkbox from '@mui/material/Checkbox';
-import Divider from '@mui/material/Divider';
-import IconButton from '@mui/material/IconButton';
-import InputAdornment from '@mui/material/InputAdornment';
-import Link from '@mui/material/Link';
-import MenuItem from '@mui/material/MenuItem';
-import Stack from '@mui/material/Stack';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
-import TextField from '@mui/material/TextField';
-import Tooltip from '@mui/material/Tooltip';
-import Typography from '@mui/material/Typography';
-import { Fragment, useState } from 'react';
-import { errorsOf } from '../components/product-form-state';
-import { OptionEditor, OptionSummary } from './OptionCard';
-import { useDragReorder } from './useDragReorder';
-import { AddVariantDialog, BulkEditDialog, VariantDialog } from './VariantDialogs';
+import {
+  type LocationOptionResponse,
+  MAX_PRODUCT_OPTIONS,
+} from "@erp/contracts";
+import AddIcon from "@mui/icons-material/Add";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Checkbox from "@mui/material/Checkbox";
+import Divider from "@mui/material/Divider";
+import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import Link from "@mui/material/Link";
+import MenuItem from "@mui/material/MenuItem";
+import Stack from "@mui/material/Stack";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
+import { Fragment, useState } from "react";
+import { errorsOf } from "../components/product-form-state";
+import { OptionEditor, OptionSummary } from "./OptionCard";
+import { useDragReorder } from "./useDragReorder";
+import {
+  AddVariantDialog,
+  BulkEditDialog,
+  VariantDialog,
+} from "./VariantDialogs";
 import {
   addVariant,
   applyOptionChange,
@@ -38,7 +45,7 @@ import {
   type VariantDraft,
   type VariantFields,
   variantLabel,
-} from './variant-ops';
+} from "./variant-ops";
 
 type Props = {
   options: OptionDraft[];
@@ -48,36 +55,65 @@ type Props = {
   errors: Record<string, string>;
   currency: string;
   disabled?: boolean;
+  /** Bodegas activas (cantidad inicial de variantes nuevas). */
+  locations: LocationOptionResponse[];
+  /** Página de Inventario (ajustar el stock de variantes guardadas). */
+  inventoryHref?: string;
 };
 
 /** Nombre visible de cada campo de variante (para los mensajes de error de la fila). */
 const FIELD_LABELS: Record<string, string> = {
-  price: 'Precio',
-  compareAtPrice: 'Precio comparativo',
-  cost: 'Costo',
-  sku: 'SKU',
-  barcode: 'Código de barras',
-  weight: 'Peso',
-  optionValues: 'Opciones',
+  price: "Precio",
+  compareAtPrice: "Precio comparativo",
+  cost: "Costo",
+  sku: "SKU",
+  barcode: "Código de barras",
+  weight: "Peso",
+  optionValues: "Opciones",
+  quantities: "Cantidad",
+  countryCodeOfOrigin: "País de origen",
+  harmonizedSystemCode: "Código SA",
 };
 
 /** Disponible (suma de bodegas) de variantes guardadas que controlan stock; "—" si no aplica. */
 function availableLabel(variants: VariantDraft[]): string {
-  const counted = variants.filter((v) => v.fields.tracked && v.available !== undefined);
-  return counted.length === 0 ? '—' : String(counted.reduce((acc, v) => acc + (v.available ?? 0), 0));
+  const counted = variants.filter(
+    (v) => v.fields.tracked && v.available !== undefined,
+  );
+  return counted.length === 0
+    ? "—"
+    : String(counted.reduce((acc, v) => acc + (v.available ?? 0), 0));
 }
 
 /** Sección "Variantes" al estilo de Shopify: opciones arriba, variantes (agrupadas) abajo. */
-export default function VariantsSection({ options, variants, onChange, errors, currency, disabled }: Props) {
-  const [editing, setEditing] = useState<{ option: OptionDraft; isNew: boolean } | null>(null);
+export default function VariantsSection({
+  options,
+  variants,
+  onChange,
+  errors,
+  currency,
+  disabled,
+  locations,
+  inventoryHref,
+}: Props) {
+  const [editing, setEditing] = useState<{
+    option: OptionDraft;
+    isNew: boolean;
+  } | null>(null);
   const [groupBy, setGroupBy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openVariant, setOpenVariant] = useState<string | null>(null);
   const [bulk, setBulk] = useState(false);
   const [adding, setAdding] = useState(false);
+  /** Bodega para la cantidad inicial de las variantes nuevas (columna Disponible). */
+  const [qtyLocation, setQtyLocation] = useState<string>(
+    locations[0] ? String(locations[0].id) : "",
+  );
+  const hasNew = variants.some((v) => v.id === undefined);
 
-  const reorderOptions = (next: OptionDraft[]) => onChange(next, sortVariants(variants, next));
+  const reorderOptions = (next: OptionDraft[]) =>
+    onChange(next, sortVariants(variants, next));
   const { itemProps } = useDragReorder(options, reorderOptions);
 
   const commitOptions = (next: OptionDraft[]) => {
@@ -86,12 +122,23 @@ export default function VariantsSection({ options, variants, onChange, errors, c
     setEditing(null);
   };
 
-  const updateVariants = (uids: Set<string> | string[], patch: Partial<VariantFields>) => {
+  const updateVariants = (
+    uids: Set<string> | string[],
+    patch: Partial<VariantFields>,
+  ) => {
     const set = uids instanceof Set ? uids : new Set(uids);
-    onChange(options, variants.map((v) => (set.has(v.uid) ? { ...v, fields: { ...v.fields, ...patch } } : v)));
+    onChange(
+      options,
+      variants.map((v) =>
+        set.has(v.uid) ? { ...v, fields: { ...v.fields, ...patch } } : v,
+      ),
+    );
   };
   const removeVariants = (uids: Set<string>) => {
-    onChange(options, variants.filter((v) => !uids.has(v.uid)));
+    onChange(
+      options,
+      variants.filter((v) => !uids.has(v.uid)),
+    );
     setSelected(new Set());
   };
 
@@ -105,13 +152,22 @@ export default function VariantsSection({ options, variants, onChange, errors, c
       return next;
     });
 
-  const groupOption = options.length >= 2 ? (options.find((o) => o.uid === groupBy) ?? options[0]) : null;
+  const groupOption =
+    options.length >= 2
+      ? (options.find((o) => o.uid === groupBy) ?? options[0])
+      : null;
   const totalCombos = combinations(options).length;
   const dialogVariant = variants.find((v) => v.uid === openVariant);
-  const hasErrors = (uid: string) => Object.keys(errorsOf(errors, uid)).length > 0;
+  const hasErrors = (uid: string) =>
+    Object.keys(errorsOf(errors, uid)).length > 0;
 
   // ---------- Filas ----------
-  const priceInput = (value: string, onValue: (v: string) => void, label: string, opts: { placeholder?: string; error?: boolean } = {}) => (
+  const priceInput = (
+    value: string,
+    onValue: (v: string) => void,
+    label: string,
+    opts: { placeholder?: string; error?: boolean } = {},
+  ) => (
     <TextField
       size="small"
       value={value}
@@ -121,14 +177,22 @@ export default function VariantsSection({ options, variants, onChange, errors, c
       disabled={disabled}
       sx={{ width: 140 }}
       slotProps={{
-        input: { startAdornment: <InputAdornment position="start">{currency}</InputAdornment> },
-        htmlInput: { 'aria-label': label, inputMode: 'decimal' },
+        input: {
+          startAdornment: (
+            <InputAdornment position="start">{currency}</InputAdornment>
+          ),
+        },
+        htmlInput: { "aria-label": label, inputMode: "decimal" },
       }}
     />
   );
 
   const variantRow = (variant: VariantDraft, indent: boolean) => {
-    const label = variantLabel(variant, options, indent ? groupOption?.uid : undefined);
+    const label = variantLabel(
+      variant,
+      options,
+      indent ? groupOption?.uid : undefined,
+    );
     const fullLabel = variantLabel(variant, options);
     const invalid = hasErrors(variant.uid);
     return (
@@ -139,7 +203,7 @@ export default function VariantsSection({ options, variants, onChange, errors, c
             disabled={disabled}
             checked={selected.has(variant.uid)}
             onChange={(e) => toggle([variant.uid], e.target.checked)}
-            slotProps={{ input: { 'aria-label': `Seleccionar ${fullLabel}` } }}
+            slotProps={{ input: { "aria-label": `Seleccionar ${fullLabel}` } }}
           />
         </TableCell>
         <TableCell>
@@ -147,9 +211,9 @@ export default function VariantsSection({ options, variants, onChange, errors, c
             component="button"
             type="button"
             underline="hover"
-            color={invalid ? 'error' : 'inherit'}
+            color={invalid ? "error" : "inherit"}
             onClick={() => setOpenVariant(variant.uid)}
-            sx={{ fontWeight: 500, textAlign: 'left' }}
+            sx={{ fontWeight: 500, textAlign: "left" }}
             aria-label={`Editar variante ${fullLabel}`}
           >
             {label}
@@ -163,22 +227,63 @@ export default function VariantsSection({ options, variants, onChange, errors, c
               color="error"
               underline="hover"
               onClick={() => setOpenVariant(variant.uid)}
-              sx={{ display: 'block', textAlign: 'left' }}
+              sx={{ display: "block", textAlign: "left" }}
             >
               {Object.entries(errorsOf(errors, variant.uid))
-                .map(([field, message]) => `${FIELD_LABELS[field] ?? field}: ${message}`)
-                .join(' · ')}
+                .map(
+                  ([field, message]) =>
+                    `${FIELD_LABELS[field] ?? field}: ${message}`,
+                )
+                .join(" · ")}
             </Link>
           )}
         </TableCell>
         <TableCell>
-          {priceInput(variant.fields.price, (price) => updateVariants([variant.uid], { price }), `Precio de ${fullLabel}`, {
-            error: !!errors[`${variant.uid}.price`],
-          })}
+          {priceInput(
+            variant.fields.price,
+            (price) => updateVariants([variant.uid], { price }),
+            `Precio de ${fullLabel}`,
+            {
+              error: !!errors[`${variant.uid}.price`],
+            },
+          )}
         </TableCell>
-        <TableCell align="right">{availableLabel([variant])}</TableCell>
-        <TableCell sx={{ color: variant.fields.sku ? 'text.primary' : 'text.disabled', whiteSpace: 'nowrap' }}>
-          {variant.fields.sku || 'Sin SKU'}
+        <TableCell align="right">
+          {variant.id === undefined && variant.fields.tracked && qtyLocation ? (
+            // Variante nueva: cantidad inicial en la bodega elegida arriba.
+            <TextField
+              size="small"
+              value={variant.fields.quantities[qtyLocation] ?? ""}
+              placeholder="0"
+              disabled={disabled}
+              onChange={(e) =>
+                updateVariants([variant.uid], {
+                  quantities: {
+                    ...variant.fields.quantities,
+                    [qtyLocation]: e.target.value,
+                  },
+                })
+              }
+              sx={{ width: 90 }}
+              slotProps={{
+                htmlInput: {
+                  inputMode: "numeric",
+                  style: { textAlign: "right" },
+                  "aria-label": `Cantidad de ${fullLabel}`,
+                },
+              }}
+            />
+          ) : (
+            availableLabel([variant])
+          )}
+        </TableCell>
+        <TableCell
+          sx={{
+            color: variant.fields.sku ? "text.primary" : "text.disabled",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {variant.fields.sku || "Sin SKU"}
         </TableCell>
       </TableRow>
     );
@@ -192,14 +297,26 @@ export default function VariantsSection({ options, variants, onChange, errors, c
           {options.map((option, index) => (
             <Fragment key={option.uid}>
               {index > 0 && <Divider />}
-              {editing && !editing.isNew && editing.option.uid === option.uid ? (
+              {editing &&
+              !editing.isNew &&
+              editing.option.uid === option.uid ? (
                 <Box sx={{ py: 1 }}>
                   <OptionEditor
                     option={option}
-                    otherNames={options.filter((o) => o.uid !== option.uid).map((o) => o.name)}
+                    otherNames={options
+                      .filter((o) => o.uid !== option.uid)
+                      .map((o) => o.name)}
                     isNew={false}
-                    onDone={(updated) => commitOptions(options.map((o) => (o.uid === updated.uid ? updated : o)))}
-                    onDelete={() => commitOptions(options.filter((o) => o.uid !== option.uid))}
+                    onDone={(updated) =>
+                      commitOptions(
+                        options.map((o) =>
+                          o.uid === updated.uid ? updated : o,
+                        ),
+                      )
+                    }
+                    onDelete={() =>
+                      commitOptions(options.filter((o) => o.uid !== option.uid))
+                    }
                     onCancel={() => setEditing(null)}
                   />
                 </Box>
@@ -228,10 +345,17 @@ export default function VariantsSection({ options, variants, onChange, errors, c
       {!disabled && !editing && options.length < MAX_PRODUCT_OPTIONS && (
         <Button
           startIcon={<AddIcon />}
-          onClick={() => setEditing({ option: { uid: newUid('o'), name: '', values: [] }, isNew: true })}
-          sx={{ alignSelf: 'flex-start' }}
+          onClick={() =>
+            setEditing({
+              option: { uid: newUid("o"), name: "", values: [] },
+              isNew: true,
+            })
+          }
+          sx={{ alignSelf: "flex-start" }}
         >
-          {options.length === 0 ? 'Agregar opciones como talla o color' : 'Agregar otra opción'}
+          {options.length === 0
+            ? "Agregar opciones como talla o color"
+            : "Agregar otra opción"}
         </Button>
       )}
 
@@ -239,16 +363,30 @@ export default function VariantsSection({ options, variants, onChange, errors, c
       {options.length > 0 && (
         <Box>
           <Divider sx={{ mb: 1 }} />
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', minHeight: 48, flexWrap: 'wrap' }}>
+          <Stack
+            direction="row"
+            spacing={1.5}
+            sx={{ alignItems: "center", minHeight: 48, flexWrap: "wrap" }}
+          >
             {selected.size > 0 ? (
               <>
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                  {selected.size} seleccionada{selected.size === 1 ? '' : 's'}
+                  {selected.size} seleccionada{selected.size === 1 ? "" : "s"}
                 </Typography>
-                <Button size="small" variant="outlined" onClick={() => setBulk(true)}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => setBulk(true)}
+                >
                   Editar
                 </Button>
-                <Tooltip title={selected.size === variants.length ? 'El producto necesita al menos una variante' : ''}>
+                <Tooltip
+                  title={
+                    selected.size === variants.length
+                      ? "El producto necesita al menos una variante"
+                      : ""
+                  }
+                >
                   <span>
                     <Button
                       size="small"
@@ -260,30 +398,52 @@ export default function VariantsSection({ options, variants, onChange, errors, c
                     </Button>
                   </span>
                 </Tooltip>
-                <Button size="small" color="inherit" onClick={() => setSelected(new Set())}>
+                <Button
+                  size="small"
+                  color="inherit"
+                  onClick={() => setSelected(new Set())}
+                >
                   Quitar selección
                 </Button>
               </>
             ) : (
-              groupOption && (
-                <TextField
-                  select
-                  size="small"
-                  label="Agrupar por"
-                  value={groupOption.uid}
-                  onChange={(e) => {
-                    setGroupBy(e.target.value);
-                    setExpanded(new Set());
-                  }}
-                  sx={{ minWidth: 160 }}
-                >
-                  {options.map((o) => (
-                    <MenuItem key={o.uid} value={o.uid}>
-                      {o.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )
+              <>
+                {groupOption && (
+                  <TextField
+                    select
+                    size="small"
+                    label="Agrupar por"
+                    value={groupOption.uid}
+                    onChange={(e) => {
+                      setGroupBy(e.target.value);
+                      setExpanded(new Set());
+                    }}
+                    sx={{ minWidth: 160 }}
+                  >
+                    {options.map((o) => (
+                      <MenuItem key={o.uid} value={o.uid}>
+                        {o.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+                {hasNew && locations.length > 0 && (
+                  <TextField
+                    select
+                    size="small"
+                    label="Cantidad inicial en"
+                    value={qtyLocation}
+                    onChange={(e) => setQtyLocation(e.target.value)}
+                    sx={{ minWidth: 200 }}
+                  >
+                    {locations.map((l) => (
+                      <MenuItem key={l.id} value={String(l.id)}>
+                        {l.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              </>
             )}
           </Stack>
 
@@ -294,10 +454,23 @@ export default function VariantsSection({ options, variants, onChange, errors, c
                   <Checkbox
                     size="small"
                     disabled={disabled}
-                    checked={selected.size > 0 && selected.size === variants.length}
-                    indeterminate={selected.size > 0 && selected.size < variants.length}
-                    onChange={(e) => toggle(variants.map((v) => v.uid), e.target.checked)}
-                    slotProps={{ input: { 'aria-label': 'Seleccionar todas las variantes' } }}
+                    checked={
+                      selected.size > 0 && selected.size === variants.length
+                    }
+                    indeterminate={
+                      selected.size > 0 && selected.size < variants.length
+                    }
+                    onChange={(e) =>
+                      toggle(
+                        variants.map((v) => v.uid),
+                        e.target.checked,
+                      )
+                    }
+                    slotProps={{
+                      input: {
+                        "aria-label": "Seleccionar todas las variantes",
+                      },
+                    }}
                   />
                 </TableCell>
                 <TableCell>Variante</TableCell>
@@ -310,31 +483,53 @@ export default function VariantsSection({ options, variants, onChange, errors, c
               {groupOption
                 ? groupVariants(variants, groupOption).map((group) => {
                     const uids = group.variants.map((v) => v.uid);
-                    const selectedCount = uids.filter((u) => selected.has(u)).length;
+                    const selectedCount = uids.filter((u) =>
+                      selected.has(u),
+                    ).length;
                     const open = expanded.has(group.value.uid);
                     const { common, range } = priceSummary(group.variants);
                     const invalid = uids.some(hasErrors);
                     return (
                       <Fragment key={group.value.uid}>
-                        <TableRow sx={{ bgcolor: 'action.hover' }}>
+                        <TableRow sx={{ bgcolor: "action.hover" }}>
                           <TableCell padding="checkbox">
                             <Checkbox
                               size="small"
                               disabled={disabled}
                               checked={selectedCount === uids.length}
-                              indeterminate={selectedCount > 0 && selectedCount < uids.length}
+                              indeterminate={
+                                selectedCount > 0 && selectedCount < uids.length
+                              }
                               onChange={(e) => toggle(uids, e.target.checked)}
-                              slotProps={{ input: { 'aria-label': `Seleccionar grupo ${group.value.name}` } }}
+                              slotProps={{
+                                input: {
+                                  "aria-label": `Seleccionar grupo ${group.value.name}`,
+                                },
+                              }}
                             />
                           </TableCell>
                           <TableCell>
-                            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                            <Stack
+                              direction="row"
+                              spacing={0.5}
+                              sx={{ alignItems: "center" }}
+                            >
                               <Box>
-                                <Typography variant="body2" sx={{ fontWeight: 600, color: invalid ? 'error.main' : undefined }}>
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    fontWeight: 600,
+                                    color: invalid ? "error.main" : undefined,
+                                  }}
+                                >
                                   {group.value.name}
                                 </Typography>
-                                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                                  {group.variants.length} variante{group.variants.length === 1 ? '' : 's'}
+                                <Typography
+                                  variant="caption"
+                                  sx={{ color: "text.secondary" }}
+                                >
+                                  {group.variants.length} variante
+                                  {group.variants.length === 1 ? "" : "s"}
                                 </Typography>
                               </Box>
                               <IconButton
@@ -347,20 +542,31 @@ export default function VariantsSection({ options, variants, onChange, errors, c
                                     return next;
                                   })
                                 }
-                                aria-label={`${open ? 'Contraer' : 'Expandir'} ${group.value.name}`}
+                                aria-label={`${open ? "Contraer" : "Expandir"} ${group.value.name}`}
                                 aria-expanded={open}
                               >
-                                {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                                {open ? (
+                                  <ExpandLessIcon fontSize="small" />
+                                ) : (
+                                  <ExpandMoreIcon fontSize="small" />
+                                )}
                               </IconButton>
                             </Stack>
                           </TableCell>
                           <TableCell>
                             {/* Precio del grupo: cambia el de todas sus variantes (como en Shopify). */}
-                            {priceInput(common ?? '', (price) => updateVariants(uids, { price }), `Precio del grupo ${group.value.name}`, {
-                              placeholder: range,
-                            })}
+                            {priceInput(
+                              common ?? "",
+                              (price) => updateVariants(uids, { price }),
+                              `Precio del grupo ${group.value.name}`,
+                              {
+                                placeholder: range,
+                              },
+                            )}
                           </TableCell>
-                          <TableCell align="right">{availableLabel(group.variants)}</TableCell>
+                          <TableCell align="right">
+                            {availableLabel(group.variants)}
+                          </TableCell>
                           <TableCell />
                         </TableRow>
                         {open && group.variants.map((v) => variantRow(v, true))}
@@ -371,12 +577,20 @@ export default function VariantsSection({ options, variants, onChange, errors, c
             </TableBody>
           </Table>
 
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1.5 }}>
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              {variants.length} variante{variants.length === 1 ? '' : 's'}
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: "center", mt: 1.5 }}
+          >
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {variants.length} variante{variants.length === 1 ? "" : "s"}
             </Typography>
             {!disabled && variants.length < totalCombos && (
-              <Button size="small" startIcon={<AddIcon />} onClick={() => setAdding(true)}>
+              <Button
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => setAdding(true)}
+              >
                 Agregar variante
               </Button>
             )}
@@ -387,6 +601,17 @@ export default function VariantsSection({ options, variants, onChange, errors, c
       {dialogVariant && (
         <VariantDialog
           label={variantLabel(dialogVariant, options)}
+          locations={locations}
+          levels={
+            dialogVariant.id === undefined
+              ? undefined
+              : (dialogVariant.levels ?? [])
+          }
+          inventoryHref={
+            inventoryHref && dialogVariant.fields.sku
+              ? `${inventoryHref}?q=${encodeURIComponent(dialogVariant.fields.sku)}`
+              : inventoryHref
+          }
           fields={dialogVariant.fields}
           errors={errorsOf(errors, dialogVariant.uid)}
           currency={currency}

@@ -65,6 +65,16 @@ export class ShopsRepository {
     return new Set(rows.map((r) => r.handle));
   }
 
+  /** Tienda de la empresa ligada a ese dominio .myshopify.com (conectada o desconectada). */
+  async findByDomain(tenantId: number, domain: string, tx: Executor = this.db): Promise<ShopRow | undefined> {
+    const [shop] = await tx
+      .select()
+      .from(shops)
+      .where(and(eq(shops.tenantId, tenantId), eq(shops.myshopifyDomain, domain)))
+      .limit(1);
+    return shop;
+  }
+
   async insert(values: typeof shops.$inferInsert, tx: Executor = this.db): Promise<ShopRow> {
     const [shop] = await tx.insert(shops).values(values).returning();
     return shop;

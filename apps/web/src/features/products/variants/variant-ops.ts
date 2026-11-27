@@ -19,6 +19,10 @@ export type VariantFields = {
   requiresShipping: boolean;
   weight: string;
   weightUnit: WeightUnit;
+  countryCodeOfOrigin: string;
+  harmonizedSystemCode: string;
+  /** Stock inicial por bodega (id -> cantidad escrita); solo se envía para variantes nuevas. */
+  quantities: Record<string, string>;
 };
 
 export type ValueDraft = { uid: string; name: string };
@@ -32,6 +36,8 @@ export type VariantDraft = {
   fields: VariantFields;
   /** Disponible total en bodegas (solo variantes guardadas; el stock se ajusta en Inventario). */
   available?: number;
+  /** Disponible por bodega (solo variantes guardadas). */
+  levels?: { locationId: number; available: number }[];
 };
 
 let counter = 0;
@@ -49,6 +55,9 @@ export const emptyFields = (): VariantFields => ({
   requiresShipping: true,
   weight: '',
   weightUnit: 'KILOGRAMS',
+  countryCodeOfOrigin: '',
+  harmonizedSystemCode: '',
+  quantities: {},
 });
 
 /**
@@ -56,7 +65,7 @@ export const emptyFields = (): VariantFields => ({
  * (SKU, código de barras) ni el precio comparativo: es una oferta propia de cada variante y, copiado,
  * puede quedar menor o igual que el precio de la nueva (inválido).
  */
-const fromTemplate = (fields: VariantFields): VariantFields => ({ ...fields, sku: '', barcode: '', compareAtPrice: '' });
+const fromTemplate = (fields: VariantFields): VariantFields => ({ ...fields, sku: '', barcode: '', compareAtPrice: '', quantities: {} });
 
 export const comboKey = (variant: VariantDraft, options: OptionDraft[]) => options.map((o) => variant.values[o.uid]).join('|');
 

@@ -36,9 +36,11 @@ async function ProductsSection({ params, searchParams }: Pick<Props, 'params' | 
 
   return (
     <ProductsTable
+      tenant={tenant}
       basePath={`/${tenant}/${shop}/products`}
       page={page}
       searchQuery={query.q}
+      status={query.status}
       filtered={!!query.q || !!query.status}
       canWrite={can(membership, 'catalog:write')}
     />

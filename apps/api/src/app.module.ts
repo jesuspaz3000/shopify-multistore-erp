@@ -5,6 +5,7 @@ import { AuditModule } from './modules/audit/index.js';
 import { CatalogModule } from './modules/catalog/index.js';
 import { IdentityModule } from './modules/identity/index.js';
 import { InventoryModule } from './modules/inventory/index.js';
+import { ShopifyModule } from './modules/shopify/index.js';
 import { ShopsModule } from './modules/shops/index.js';
 import { HealthModule } from './shared/health/health.module.js';
 import { RateLimitModule } from './shared/http/rate-limit.js';
@@ -23,6 +24,7 @@ import { RateLimitModule } from './shared/http/rate-limit.js';
     AuditModule,
     IdentityModule,
     ShopsModule,
+    ShopifyModule,
     InventoryModule,
     CatalogModule,
   ],

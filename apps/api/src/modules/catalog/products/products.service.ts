@@ -4,7 +4,11 @@ import {
   type InventoryPolicy,
   type Paginated,
   paginated,
+  type ProductBulkAction,
+  type ProductBulkData,
+  type ProductBulkResponse,
   type ProductData,
+  type ProductFacetsResponse,
   type ProductListItem,
   type ProductResponse,
   type ProductsQuery,
@@ -17,9 +21,12 @@ import type { TenantContext } from '../../../shared/http/request-context.js';
 import { AuditService } from '../../audit/audit.service.js';
 import { nextAvailableSlug, slugify } from '../../identity/slug.js';
 import { StockService } from '../../inventory/stock/stock.service.js';
+import { MediaService, mediaUrl } from '../media/media.service.js';
+import { sanitizeDescription } from './sanitize-description.js';
 import { type ProductRow, ProductsRepository } from './products.repository.js';
 import { TenantCurrencyReader } from './tenant-currency.reader.js';
 
+const BULK_STATUS: Record<Exclude<ProductBulkAction, 'delete'>, ProductStatus> = { activate: 'ACTIVE', draft: 'DRAFT', archive: 'ARCHIVED' };
 const HANDLE_TAKEN = 'Ya existe un producto con esa URL';
 const STALE ='Otra persona modificó este producto mientras lo editabas. Recarga la página para ver sus cambios.';
 
@@ -30,6 +37,7 @@ export class ProductsService {
     private readonly currency: TenantCurrencyReader,
     private readonly audit: AuditService,
     private readonly stock: StockService,
+    private readonly media: MediaService,
   ) {}
 
   async list(tenant: TenantContext, query: ProductsQuery): Promise<Paginated<ProductListItem>> {
@@ -38,8 +46,9 @@ export class ProductsService {
       this.currency.of(tenant.tenantId),
     ]);
     return paginated(
-      items.map((row) => ({
+      items.map(({ featuredMediaId, ...row }) => ({
         ...row,
+        imageUrl: featuredMediaId ? mediaUrl(tenant.slug, featuredMediaId) : null,
         status: row.status as ProductStatus,
         minPrice: row.minPrice ? trimDecimal(row.minPrice) : null,
         maxPrice: row.maxPrice ? trimDecimal(row.maxPrice) : null,
@@ -70,7 +79,8 @@ export class ProductsService {
           handle = nextAvailableSlug(base, await this.repo.takenHandles(tenant.tenantId, base, tx));
         }
         const created = await this.repo.insertProduct({ tenantId: tenant.tenantId, handle, ...productColumns(input) }, tx);
-        await this.saveVariants(tx, tenant.tenantId, created.id, input, currency, true);
+        await this.saveVariants(tx, tenant.tenantId, userId, created.id, input, currency, true);
+        await this.media.setProductMedia(tenant.tenantId, created.id, input.media, tx);
         await this.record(tx, tenant, userId, created.id, 'CREATE', { new: summary(input) });
         return created;
       }),
@@ -94,7 +104,8 @@ export class ProductsService {
         }
         const updated = await this.repo.updateProduct(tenant.tenantId, productId, input.version, columns, tx);
         if (!updated) throw new ConflictException(STALE);
-        await this.saveVariants(tx, tenant.tenantId, productId, input, currency, false);
+        await this.saveVariants(tx, tenant.tenantId, userId, productId, input, currency, false);
+        await this.media.setProductMedia(tenant.tenantId, productId, input.media, tx);
         await this.record(tx, tenant, userId, productId, 'UPDATE', {
           old: { title: current.title, status: current.status },
           new: summary(input),
@@ -114,9 +125,38 @@ export class ProductsService {
     });
   }
 
+  /** Acción en bloque desde la lista (activar, borrador, archivar o eliminar varios). */
+  async bulk(tenant: TenantContext, userId: number, input: ProductBulkData): Promise<ProductBulkResponse> {
+    return this.repo.transaction(async (tx) => {
+      let affected: number[];
+      if (input.action === 'delete') {
+        affected = await this.repo.existingIds(tenant.tenantId, input.ids, tx);
+        for (const id of affected) await this.repo.softDeleteProduct(tenant.tenantId, id, tx);
+      } else {
+        affected = await this.repo.setStatus(tenant.tenantId, input.ids, BULK_STATUS[input.action], tx);
+      }
+      for (const id of affected) {
+        await this.record(tx, tenant, userId, id, input.action === 'delete' ? 'DELETE' : 'UPDATE', { bulk: input.action });
+      }
+      return { affected: affected.length };
+    });
+  }
+
+  facets(tenant: TenantContext): Promise<ProductFacetsResponse> {
+    return this.repo.facets(tenant.tenantId);
+  }
+
   // ---------- internos ----------
 
-  private async saveVariants(tx: Tx, tenantId: number, productId: number, input: ProductData, currency: string, isNew: boolean) {
+  private async saveVariants(
+    tx: Tx,
+    tenantId: number,
+    userId: number,
+    productId: number,
+    input: ProductData,
+    currency: string,
+    isNew: boolean,
+  ) {
     const { options, variants } = input;
 
     // Valor canónico (como se escribió en la opción) de cada valor elegido por una variante.
@@ -148,6 +188,7 @@ export class ProductsService {
     await this.repo.clearSkus(tenantId, keptIds, tx);
 
     const links: { variantId: number; optionValueId: number }[] = [];
+    const initialStock: { inventoryItemId: number; locationId: number; quantity: number }[] = [];
     for (const [index, variant] of variants.entries()) {
       const title = options.length > 0 ? canonical[index].join(' / ') : DEFAULT_VARIANT_TITLE;
       const variantValues = {
@@ -171,17 +212,23 @@ export class ProductsService {
         unitCostCurrency: variant.cost ? currency : null,
         weightValue: variant.weight,
         weightUnit: variant.weightUnit,
+        countryCodeOfOrigin: variant.countryCodeOfOrigin,
+        harmonizedSystemCode: variant.harmonizedSystemCode,
       };
       let variantId: number;
       if (variant.id) {
         variantId = variant.id;
         await this.repo.updateVariant(tenantId, variantId, byId.get(variantId)!.inventoryItemId, variantValues, itemValues, tx);
       } else {
-        variantId = await this.repo.insertVariant(tenantId, productId, variantValues, itemValues, tx);
+        const created = await this.repo.insertVariant(tenantId, productId, variantValues, itemValues, tx);
+        variantId = created.variantId;
+        // Stock inicial por bodega: solo variantes nuevas (el de las existentes se ajusta en Inventario).
+        for (const q of variant.quantities) initialStock.push({ inventoryItemId: created.inventoryItemId, ...q });
       }
       canonical[index].forEach((value, i) => links.push({ variantId, optionValueId: valueIds[i].get(value.toLowerCase())! }));
     }
     await this.repo.linkOptionValues(tenantId, links, tx);
+    await this.stock.seedInitialStock(tenantId, userId, initialStock, tx);
   }
 
   /** Mensaje claro si un SKU ya lo usa otro producto (el índice único es la garantía final). */
@@ -212,11 +259,12 @@ export class ProductsService {
   }
 
   private async detail(tenant: TenantContext, product: ProductRow): Promise<ProductResponse> {
-    const [{ options, values, variants, links }, currency] = await Promise.all([
+    const [{ options, values, variants, links }, currency, media] = await Promise.all([
       this.repo.loadDetail(tenant.tenantId, product.id),
       this.currency.of(tenant.tenantId),
+      this.media.productMedia(tenant, product.id),
     ]);
-    const available = await this.stock.availableByItem(
+    const levels = await this.stock.levelsByItem(
       tenant.tenantId,
       variants.map(({ item }) => item.id),
     );
@@ -237,6 +285,7 @@ export class ProductsService {
       seoTitle: product.seoTitle,
       seoDescription: product.seoDescription,
       options: options.map((o) => ({ name: o.name, values: values.filter((v) => v.optionId === o.id).map((v) => v.name) })),
+      media,
       variants: variants.map(({ variant, item }) => ({
         id: variant.id,
         title: variant.title,
@@ -252,8 +301,11 @@ export class ProductsService {
         taxable: variant.taxable,
         weight: item.weightValue ? trimDecimal(item.weightValue) : null,
         weightUnit: (item.weightUnit ?? 'KILOGRAMS') as WeightUnit,
+        countryCodeOfOrigin: item.countryCodeOfOrigin,
+        harmonizedSystemCode: item.harmonizedSystemCode,
         inventoryItemId: item.id,
-        available: available.get(item.id) ?? 0,
+        available: (levels.get(item.id) ?? []).reduce((acc, l) => acc + l.available, 0),
+        levels: levels.get(item.id) ?? [],
       })),
       currency,
       version: product.version,
@@ -280,7 +332,8 @@ export class ProductsService {
 function productColumns(input: ProductData) {
   return {
     title: input.title,
-    descriptionHtml: input.description,
+    // HTML del editor, limpiado: solo formato (sin scripts, eventos ni enlaces javascript:).
+    descriptionHtml: sanitizeDescription(input.description),
     vendor: input.vendor,
     productType: input.productType,
     status: input.status,

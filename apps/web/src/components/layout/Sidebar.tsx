@@ -10,6 +10,7 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import SellIcon from '@mui/icons-material/Sell';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SyncIcon from '@mui/icons-material/Sync';
+import Collapse from '@mui/material/Collapse';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -32,9 +33,21 @@ const ICONS: Record<NavIcon, React.ElementType> = {
   settings: SettingsIcon,
 };
 
+/**
+ * Enlace activo = el de prefijo más largo que coincide con la URL. Así /products/12 marca "Productos"
+ * pero /products/collections marca su submódulo "Colecciones".
+ */
+function activeHref(pathname: string, hrefs: string[], overview: string): string | undefined {
+  return hrefs
+    .filter((href) => (href === overview ? pathname === overview : pathname === href || pathname.startsWith(`${href}/`)))
+    .sort((a, b) => b.length - a.length)[0];
+}
+
 export default function Sidebar({ tenant, shop, onNavigate }: { tenant: string; shop: string; onNavigate?: () => void }) {
   const pathname = usePathname();
   const overview = `/${tenant}/${shop}`;
+  const allHrefs = NAVIGATION.flatMap((s) => s.items.flatMap((i) => [navHref(i, tenant, shop), ...(i.children ?? []).map((c) => navHref(c, tenant, shop))]));
+  const active = activeHref(pathname, allHrefs, overview);
 
   return (
     <nav aria-label="Navegación principal">
@@ -47,22 +60,44 @@ export default function Sidebar({ tenant, shop, onNavigate }: { tenant: string; 
         >
           {section.items.map((item) => {
             const href = navHref(item, tenant, shop);
-            const selected = href === overview ? pathname === overview : pathname.startsWith(href);
+            const children = (item.children ?? []).map((c) => ({ ...c, href: navHref(c, tenant, shop) }));
+            // Los submódulos se despliegan mientras se está en el módulo o en alguno de ellos.
+            const open = active === href || children.some((c) => c.href === active);
             const Icon = ICONS[item.icon];
             return (
-              <ListItemButton
-                key={item.label}
-                component={Link}
-                href={href}
-                selected={selected}
-                onClick={onNavigate}
-                sx={{ borderRadius: 1.5, mb: 0.25 }}
-              >
-                <ListItemIcon>
-                  <Icon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText primary={item.label} />
-              </ListItemButton>
+              <li key={item.label} style={{ listStyle: 'none' }}>
+                <ListItemButton
+                  component={Link}
+                  href={href}
+                  selected={active === href}
+                  onClick={onNavigate}
+                  aria-expanded={children.length > 0 ? open : undefined}
+                  sx={{ borderRadius: 1.5, mb: 0.25 }}
+                >
+                  <ListItemIcon>
+                    <Icon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText primary={item.label} />
+                </ListItemButton>
+                {children.length > 0 && (
+                  <Collapse in={open} timeout="auto" unmountOnExit>
+                    <List dense disablePadding aria-label={`Submódulos de ${item.label}`}>
+                      {children.map((child) => (
+                        <ListItemButton
+                          key={child.label}
+                          component={Link}
+                          href={child.href}
+                          selected={active === child.href}
+                          onClick={onNavigate}
+                          sx={{ borderRadius: 1.5, mb: 0.25, pl: 7, py: 0.5 }}
+                        >
+                          <ListItemText primary={child.label} slotProps={{ primary: { variant: 'body2' } }} />
+                        </ListItemButton>
+                      ))}
+                    </List>
+                  </Collapse>
+                )}
+              </li>
             );
           })}
         </List>

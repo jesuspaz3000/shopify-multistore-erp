@@ -13,7 +13,6 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
-import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
@@ -28,6 +27,7 @@ import { deleteLocation, updateLocation } from '../api/locations.api';
 import { LOCATION_TYPE_LABELS, STOCK_MODE_LABELS, stockRuleSummary } from '../location-labels';
 import LocationFormDialog from './LocationFormDialog';
 import LocationShopsDialog from './LocationShopsDialog';
+import { useUiStore } from '@/stores/UiStoreProvider';
 
 type Props = {
   tenant: string;
@@ -46,7 +46,8 @@ export default function LocationsManager({ tenant, page, searchQuery, shops, can
   const [deleting, setDeleting] = useState<LocationResponse | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  // Aviso global (AppShell): sobrevive al router.refresh() que vuelve a montar la página.
+  const setToast = useUiStore((s) => s.notify);
 
   const afterChange = (message: string) => {
     setToast(message);
@@ -241,8 +242,6 @@ export default function LocationsManager({ tenant, page, searchQuery, shops, can
           setDeleteError(null);
         }}
       />
-
-      <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast(null)} message={toast} />
     </Stack>
   );
 }

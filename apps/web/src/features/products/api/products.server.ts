@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { Paginated, ProductListItem, ProductResponse, ProductsQuery } from '@erp/contracts';
+import type { Paginated, ProductFacetsResponse, ProductListItem, ProductResponse, ProductsQuery } from '@erp/contracts';
 import { ApiError } from '@/lib/http/errors';
 import { getServerHttp } from '@/lib/http/server';
 import { toApiParams } from '@/lib/table-query';
@@ -21,4 +21,9 @@ export async function getProduct(tenant: string, productId: string): Promise<Pro
     if (error instanceof ApiError && error.status === 404) return null;
     throw error;
   }
+}
+
+/** Tipos, proveedores y etiquetas ya usados (sugerencias del formulario). */
+export async function getProductFacets(tenant: string): Promise<ProductFacetsResponse> {
+  return (await getServerHttp()).get<ProductFacetsResponse>(`${base(tenant)}/facets`);
 }

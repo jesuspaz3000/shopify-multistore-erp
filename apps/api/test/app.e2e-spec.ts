@@ -8,6 +8,8 @@ import type { App } from 'supertest/types.js';
 import { eq } from 'drizzle-orm';
 import { AppModule } from './../src/app.module.js';
 import { auditLogs } from './../src/modules/audit/audit.schema.js';
+import { shops } from './../src/modules/shops/shops.schema.js';
+import { ShopifyConnectionService } from './../src/modules/shopify/index.js';
 import { tenants, tenantUsers, users } from './../src/modules/identity/identity.schema.js';
 import { DB, type Database } from './../src/shared/database/database.module.js';
 import { AUTH_LIMITS } from './../src/shared/http/rate-limit.js';
@@ -156,6 +158,139 @@ describe('API (e2e)', () => {
       await b.agent.patch(`/tenants/${b.slug}/shops/${shop.id}`).send({ name: 'Hackeada' }).expect(404);
       // Sin sesión: 401.
       await request(app.getHttpServer()).get(`/tenants/${a.slug}/shops`).expect(401);
+    });
+
+    it('shopify: conectar crea la tienda con los datos de Shopify, cifra secretos, renueva el token, reconecta y desconecta', async () => {
+      const a = await registerCompany('Empresa Shopify E2E');
+      const b = await registerCompany('Empresa Shopify B E2E');
+      const base = `/tenants/${a.slug}/shops`;
+      const domain = `e2e-${Date.now()}.myshopify.com`;
+
+      // Shopify simulado: solo se interceptan las llamadas a *.myshopify.com.
+      const realFetch = globalThis.fetch;
+      const calls: string[] = [];
+      let tokenCounter = 0;
+      let shopName = 'Yisus Store';
+      let grantedScopes = 'write_products,write_inventory,read_locations,write_files,write_publications';
+      vi.stubGlobal('fetch', async (input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (!url.includes('.myshopify.com')) return realFetch(input, init);
+        calls.push(url);
+        const json = (status: number, body: unknown) =>
+          new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+        if (url.endsWith('/admin/oauth/access_token')) {
+          const form = new URLSearchParams(String(init?.body));
+          if (form.get('client_secret') !== 'shpss_correcto') return json(401, { error: 'invalid_client' });
+          return json(200, { access_token: `shpat_token_${++tokenCounter}`, scope: grantedScopes, expires_in: 86399 });
+        }
+        return json(200, {
+          data: {
+            shop: {
+              id: 'gid://shopify/Shop/987654321',
+              name: shopName,
+              email: 'owner@example.com',
+              contactEmail: 'tienda@example.com',
+              currencyCode: 'PEN',
+              enabledPresentmentCurrencies: ['PEN', 'USD'],
+              ianaTimezone: 'America/Lima',
+              myshopifyDomain: domain,
+              taxesIncluded: true,
+              primaryDomain: { host: domain },
+              plan: { publicDisplayName: 'Development' },
+              shopAddress: { countryCodeV2: 'PE' },
+              currencyFormats: { moneyFormat: 'S/ {{amount}}' },
+            },
+            currentAppInstallation: { accessScopes: grantedScopes.split(',').map((handle) => ({ handle })) },
+          },
+        });
+      });
+
+      try {
+        const connectUrl = `${base}/connect`;
+        const credentials = { myshopifyDomain: domain, clientId: 'cid', clientSecret: 'shpss_correcto' };
+        // Dominio que no es de Shopify: 400 sin llamar a nadie (no hay SSRF).
+        await a.agent.post(connectUrl).send({ ...credentials, myshopifyDomain: 'evil.com' }).expect(400);
+        expect(calls).toHaveLength(0);
+        // Secreto incorrecto: 400 con un mensaje útil y no se crea ninguna tienda.
+        const wrong = await a.agent.post(connectUrl).send({ ...credentials, clientSecret: 'otro' }).expect(400);
+        expect(wrong.body.message).toMatch(/credenciales/);
+        expect((await a.agent.get(base).expect(200)).body.total).toBe(0);
+
+        // Conectar crea la tienda con el nombre y los datos de Shopify.
+        const connected = await a.agent
+          .post(connectUrl)
+          .send({ ...credentials, myshopifyDomain: `https://${domain}/admin` })
+          .expect(201);
+        const shop = connected.body;
+        expect(shop).toMatchObject({
+          name: 'Yisus Store',
+          handle: 'yisus-store',
+          status: 'installed',
+          myshopifyDomain: domain,
+          currencyCode: 'PEN',
+          countryCode: 'PE',
+          ianaTimezone: 'America/Lima',
+          shopify: { clientId: 'cid', apiVersion: '2026-10', planName: 'Development', missingScopes: [] },
+        });
+        expect(JSON.stringify(shop)).not.toMatch(/shpss_|shpat_/);
+        expect(calls.at(-1)).toBe(`https://${domain}/admin/api/2026-10/graphql.json`);
+        // Sus datos vienen de Shopify: no se editan a mano en el ERP.
+        await a.agent.patch(`${base}/${shop.id}`).send({ name: 'Otro nombre' }).expect(409);
+
+        // En la base: cifrados (sin el secreto ni el token en claro).
+        const db = app.get<Database>(DB);
+        const [row] = await db.select().from(shops).where(eq(shops.id, shop.id));
+        expect(row.encryptedClientSecret).toMatch(/^v1\./);
+        expect(row.encryptedClientSecret).not.toContain('shpss_correcto');
+        expect(row.encryptedAccessToken).not.toContain('shpat_');
+
+        // Token vigente: se usa el guardado sin llamar a Shopify. Por vencer: se renueva solo.
+        const connection = app.get(ShopifyConnectionService);
+        const before = calls.length;
+        expect(await connection.session(row.tenantId, shop.id)).toEqual({ domain, token: 'shpat_token_1' });
+        expect(calls).toHaveLength(before);
+        await db.update(shops).set({ tokenExpiresAt: new Date(Date.now() + 60_000) }).where(eq(shops.id, shop.id));
+        const [s1, s2] = await Promise.all([connection.session(row.tenantId, shop.id), connection.session(row.tenantId, shop.id)]);
+        expect(s1.token).toBe('shpat_token_2');
+        expect(s2.token).toBe('shpat_token_2'); // dos pedidos simultáneos comparten una sola renovación
+        expect(calls.filter((c) => c.endsWith('/access_token'))).toHaveLength(3);
+
+        // Renombrada en Shopify: "Actualizar desde Shopify" trae el nombre nuevo (la URL del ERP no cambia).
+        shopName = 'Yisus Store Perú';
+        const refreshed = await a.agent.post(`${base}/${shop.id}/shopify/refresh`).expect(200);
+        expect(refreshed.body).toMatchObject({ name: 'Yisus Store Perú', handle: 'yisus-store' });
+
+        // Conectar otra vez el mismo dominio reutiliza la tienda (no la duplica).
+        expect((await a.agent.post(connectUrl).send(credentials).expect(201)).body.id).toBe(shop.id);
+        expect((await a.agent.get(base).expect(200)).body.total).toBe(1);
+        // La misma tienda de Shopify no puede quedar conectada en otra empresa.
+        await b.agent.post(`/tenants/${b.slug}/shops/connect`).send(credentials).expect(409);
+        // Otra empresa no puede actualizar ni desconectar la tienda de A.
+        await b.agent.post(`/tenants/${b.slug}/shops/${shop.id}/shopify/refresh`).expect(404);
+        await b.agent.delete(`/tenants/${b.slug}/shops/${shop.id}/shopify`).expect(404);
+
+        // Una tienda conectada no se puede eliminar; primero se desconecta.
+        await a.agent.delete(`${base}/${shop.id}`).expect(409);
+        const disconnected = await a.agent.delete(`${base}/${shop.id}/shopify`).expect(200);
+        // Conserva su identidad (dominio) para reconectar la misma tienda; las credenciales se borran.
+        expect(disconnected.body).toMatchObject({ status: 'pending_connection', shopify: null, myshopifyDomain: domain });
+        const [cleared] = await db.select().from(shops).where(eq(shops.id, shop.id));
+        expect(cleared.encryptedClientSecret).toBeNull();
+        expect(cleared.encryptedAccessToken).toBeNull();
+        await expect(connection.session(row.tenantId, shop.id)).rejects.toThrow(/no está conectada/);
+
+        // Permisos insuficientes: reconecta, pero informa cuáles faltan.
+        grantedScopes = 'read_products';
+        const partial = await a.agent.post(connectUrl).send(credentials).expect(201);
+        expect(partial.body.id).toBe(shop.id);
+        expect(partial.body.shopify.missingScopes).toContain('write_products');
+
+        // Desconectada, ya se puede eliminar.
+        await a.agent.delete(`${base}/${shop.id}/shopify`).expect(200);
+        await a.agent.delete(`${base}/${shop.id}`).expect(204);
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it('bodegas: crear, código único, tiendas que abastece con su regla de stock y baja lógica', async () => {
@@ -320,6 +455,142 @@ describe('API (e2e)', () => {
       await adjust({ locationId: cusco.id, reason: 'received', changes: [{ inventoryItemId: s.inventoryItemId, delta: 1 }] }).expect(404);
     });
 
+    it('productos: stock inicial por bodega, inventario en la lista, aduana, acciones en bloque y sugerencias', async () => {
+      const a = await registerCompany('Empresa Lista E2E');
+      const t = `/tenants/${a.slug}`;
+      const lima = (await a.agent.post(`${t}/locations`).send({ code: 'LIMA', name: 'Bodega Lima' }).expect(201)).body;
+      const cusco = (await a.agent.post(`${t}/locations`).send({ code: 'CUSCO', name: 'Bodega Cusco' }).expect(201)).body;
+
+      const created = (
+        await a.agent
+          .post(`${t}/products`)
+          .send({
+            title: 'Polera',
+            vendor: 'Marca X',
+            productType: 'Poleras',
+            tags: ['verano'],
+            options: [{ name: 'Talla', values: ['S', 'M'] }],
+            variants: [
+              {
+                optionValues: ['S'],
+                price: '10',
+                countryCodeOfOrigin: 'pe',
+                harmonizedSystemCode: '610910',
+                quantities: [
+                  { locationId: lima.id, quantity: 5 },
+                  { locationId: cusco.id, quantity: 2 },
+                ],
+              },
+              { optionValues: ['M'], price: '10', quantities: [{ locationId: lima.id, quantity: 0 }] },
+            ],
+          })
+          .expect(201)
+      ).body;
+      const [s, m] = created.variants;
+      expect(s).toMatchObject({ available: 7, countryCodeOfOrigin: 'PE', harmonizedSystemCode: '610910' });
+      expect(s.levels).toEqual([
+        { locationId: cusco.id, available: 2 },
+        { locationId: lima.id, available: 5 },
+      ]);
+      expect(m).toMatchObject({ available: 0, levels: [] });
+      // El stock inicial queda en el kardex como "initial".
+      const kardex = (await a.agent.get(`${t}/inventory/adjustments?inventoryItemId=${s.inventoryItemId}`).expect(200)).body;
+      expect(kardex.items.map((k: { reason: string; delta: number }) => [k.reason, k.delta]).sort()).toEqual([
+        ['initial', 2],
+        ['initial', 5],
+      ]);
+      // "initial" no es un motivo de ajuste manual.
+      await a.agent
+        .post(`${t}/inventory/adjustments`)
+        .send({ locationId: lima.id, reason: 'initial', changes: [{ inventoryItemId: s.inventoryItemId, delta: 1 }] })
+        .expect(400);
+      // Bodega inválida al crear: no se crea nada.
+      await a.agent
+        .post(`${t}/products`)
+        .send({ title: 'Otro', variants: [{ optionValues: [], price: '1', quantities: [{ locationId: 999999, quantity: 1 }] }] })
+        .expect(400);
+      expect((await a.agent.get(`${t}/products`).expect(200)).body.total).toBe(1);
+
+      // Lista: "7 en existencias para 2 variantes"; un producto sin seguimiento: 0 variantes con stock.
+      await a.agent.post(`${t}/products`).send({ title: 'Servicio', variants: [{ optionValues: [], price: '5', tracked: false }] }).expect(201);
+      const list = (await a.agent.get(`${t}/products`).expect(200)).body.items;
+      expect(list.find((p: { title: string }) => p.title === 'Polera')).toMatchObject({ trackedVariants: 2, available: 7 });
+      expect(list.find((p: { title: string }) => p.title === 'Servicio')).toMatchObject({ trackedVariants: 0, available: 0 });
+
+      // Sugerencias del formulario.
+      expect((await a.agent.get(`${t}/products/facets`).expect(200)).body).toEqual({
+        productTypes: ['Poleras'],
+        vendors: ['Marca X'],
+        tags: ['verano'],
+      });
+
+      // Acciones en bloque.
+      const ids = list.map((p: { id: number }) => p.id);
+      expect((await a.agent.post(`${t}/products/bulk`).send({ action: 'archive', ids: [...ids, 999999] }).expect(200)).body).toEqual({
+        affected: 2,
+      });
+      expect((await a.agent.get(`${t}/products?status=ARCHIVED`).expect(200)).body.total).toBe(2);
+      await a.agent.post(`${t}/products/bulk`).send({ action: 'publicar', ids }).expect(400);
+      expect((await a.agent.post(`${t}/products/bulk`).send({ action: 'delete', ids }).expect(200)).body.affected).toBe(2);
+      expect((await a.agent.get(`${t}/products`).expect(200)).body.total).toBe(0);
+    });
+
+    it('multimedia: sube imágenes verificando los bytes, las asigna al producto y las sirve solo a la empresa', async () => {
+      const a = await registerCompany('Empresa Media E2E');
+      const b = await registerCompany('Empresa Media B E2E');
+      const t = `/tenants/${a.slug}`;
+      const png = Buffer.alloc(64);
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0);
+      png.writeUInt32BE(800, 16);
+      png.writeUInt32BE(600, 20);
+
+      const uploaded = (await a.agent.post(`${t}/media`).attach('file', png, 'foto.png').expect(201)).body;
+      expect(uploaded).toMatchObject({ mimeType: 'image/png', width: 800, height: 600, fileSize: 64, alt: null });
+      expect(uploaded.url).toBe(`/tenants/${a.slug}/media/${uploaded.id}/file`);
+      // Mismo archivo otra vez: se reutiliza (sin duplicados).
+      expect((await a.agent.post(`${t}/media`).attach('file', png, 'otra.png').expect(201)).body.id).toBe(uploaded.id);
+      // Un HTML disfrazado de .jpg se rechaza por sus bytes; sin archivo, 400.
+      await a.agent.post(`${t}/media`).attach('file', Buffer.from('<html><script>alert(1)</script></html>'), 'foto.jpg').expect(415);
+      await a.agent.post(`${t}/media`).expect(400);
+
+      // Se sirve con su tipo real; otra empresa no puede verla.
+      const file = await a.agent.get(`${t}/media/${uploaded.id}/file`).expect(200);
+      expect(file.headers['content-type']).toBe('image/png');
+      expect(file.headers['x-content-type-options']).toBe('nosniff');
+      expect(Buffer.compare(file.body as Buffer, png)).toBe(0);
+      await b.agent.get(`/tenants/${b.slug}/media/${uploaded.id}/file`).expect(404);
+
+      // Producto con imágenes (en orden, con texto alternativo) y descripción HTML limpiada.
+      const product = (
+        await a.agent
+          .post(`${t}/products`)
+          .send({
+            title: 'Polera',
+            description: '<p onclick="x()">Algodón <strong>100%</strong></p><script>alert(1)</script>',
+            media: [{ id: uploaded.id, alt: 'Polera roja de frente' }],
+            variants: [{ optionValues: [], price: '10' }],
+          })
+          .expect(201)
+      ).body;
+      expect(product.description).toBe('<p>Algodón <strong>100%</strong></p>');
+      expect(product.media).toEqual([{ ...uploaded, alt: 'Polera roja de frente' }]);
+      expect((await a.agent.get(`${t}/products`).expect(200)).body.items[0].imageUrl).toBe(uploaded.url);
+      // Una imagen de otra empresa no se puede asignar.
+      const foreign = (await b.agent.post(`/tenants/${b.slug}/media`).attach('file', png, 'x.png').expect(201)).body;
+      await a.agent
+        .put(`${t}/products/${product.id}`)
+        .send({ title: 'Polera', media: [{ id: foreign.id }], variants: [{ id: product.variants[0].id, optionValues: [], price: '10' }] })
+        .expect(400);
+      // Quitar las imágenes.
+      const cleared = (
+        await a.agent
+          .put(`${t}/products/${product.id}`)
+          .send({ title: 'Polera', media: [], variants: [{ id: product.variants[0].id, optionValues: [], price: '10' }] })
+          .expect(200)
+      ).body;
+      expect(cleared.media).toEqual([]);
+    });
+
     it('productos: opciones y variantes, SKU único, edición que conserva variantes y concurrencia', async () => {
       const a = await registerCompany('Empresa Catalogo E2E');
       const b = await registerCompany('Empresa Catalogo B E2E');
@@ -329,7 +600,7 @@ describe('API (e2e)', () => {
       const simple = (
         await a.agent
           .post(base)
-          .send({ title: 'Taza Blanca', status: 'ACTIVE', variants: [{ optionValues: [], sku: 'TAZA-01', price: '12.5', cost: '4' }] })
+          .send({ title: 'Taza Blanca', variants: [{ optionValues: [], sku: 'TAZA-01', price: '12.5', cost: '4' }] })
           .expect(201)
       ).body;
       expect(simple).toMatchObject({ handle: 'taza-blanca', status: 'ACTIVE', currency: 'USD', version: 1, options: [] });
@@ -363,6 +634,7 @@ describe('API (e2e)', () => {
 
       // Con opciones: valores normalizados según la opción; validaciones de combinaciones.
       const shirt = {
+        status: 'DRAFT',
         title: 'Polera Básica',
         vendor: 'Marca X',
         tags: ['verano', 'Verano', 'algodón'],

@@ -3,6 +3,8 @@ import { ProductFormSkeleton } from '@/components/skeletons';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
+import { getLocationOptions } from '@/features/locations/api/locations.server';
+import { getProductFacets } from '@/features/products/api/products.server';
 import ProductForm from '@/features/products/components/ProductForm';
 import { can } from '@/features/tenant/permissions';
 import { getMe } from '@/lib/session';
@@ -28,12 +30,16 @@ async function NewProduct({ params }: Pick<Props, 'params'>) {
     return <Alert severity="info">Tu rol no permite crear productos.</Alert>;
   }
 
+  const [locations, facets] = await Promise.all([getLocationOptions(tenant), getProductFacets(tenant)]);
+
   return (
     <ProductForm
       basePath={`/${tenant}/${shop}/products`}
       tenant={tenant}
       currency={membership.reportingCurrency}
       canWrite
+      locations={can(membership, 'inventory:read') ? locations : []}
+      facets={facets}
     />
   );
 }

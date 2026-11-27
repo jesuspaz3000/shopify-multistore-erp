@@ -14,6 +14,8 @@ export type ProductFormState = {
   seoDescription: string;
   /** URL del producto ('' al crear = se genera desde el título). */
   handle: string;
+  /** Imágenes en orden (la primera es la principal). */
+  media: { id: number; url: string; alt: string | null }[];
   options: OptionDraft[];
   /** Sin opciones hay exactamente una variante (precio, inventario y envío del producto). */
   variants: VariantDraft[];
@@ -25,15 +27,16 @@ export function initialState(product?: ProductResponse): ProductFormState {
     return {
       title: '',
       description: '',
-      status: 'DRAFT',
+      status: 'ACTIVE',
       vendor: '',
       productType: '',
       tags: [],
       seoTitle: '',
       seoDescription: '',
       handle: '',
+      media: [],
       options: [],
-      variants: [{ uid: newUid('v'), values: {}, fields: { ...emptyFields(), price: '0.00' } }],
+      variants: [{ uid: newUid('v'), values: {}, fields: emptyFields() }],
     };
   }
   const options: OptionDraft[] = product.options.map((o) => ({
@@ -45,6 +48,7 @@ export function initialState(product?: ProductResponse): ProductFormState {
     uid: newUid('v'),
     id: v.id,
     available: v.available,
+    levels: v.levels,
     values: Object.fromEntries(
       options.map((o, i) => [o.uid, o.values.find((x) => x.name.toLowerCase() === v.optionValues[i]?.toLowerCase())?.uid ?? '']),
     ),
@@ -60,6 +64,9 @@ export function initialState(product?: ProductResponse): ProductFormState {
       requiresShipping: v.requiresShipping,
       weight: v.weight ?? '',
       weightUnit: v.weightUnit,
+      countryCodeOfOrigin: v.countryCodeOfOrigin ?? '',
+      harmonizedSystemCode: v.harmonizedSystemCode ?? '',
+      quantities: {},
     },
   }));
   return {
@@ -72,6 +79,7 @@ export function initialState(product?: ProductResponse): ProductFormState {
     seoTitle: product.seoTitle ?? '',
     seoDescription: product.seoDescription ?? '',
     handle: product.handle,
+    media: product.media.map(({ id, url, alt }) => ({ id, url, alt })),
     options,
     variants: sortVariants(variants, options),
     version: product.version,
@@ -90,11 +98,20 @@ export function toInput(state: ProductFormState): ProductInput {
     seoTitle: state.seoTitle,
     seoDescription: state.seoDescription,
     handle: state.handle,
+    media: state.media.map(({ id, alt }) => ({ id, alt })),
     options: state.options.map((o) => ({ name: o.name, values: o.values.map((v) => v.name) })),
-    variants: state.variants.map((v) => ({
-      id: v.id,
-      optionValues: state.options.map((o) => o.values.find((x) => x.uid === v.values[o.uid])?.name ?? ''),
-      ...v.fields,
+    variants: state.variants.map(({ id, values, fields: { quantities, ...fields } }) => ({
+      id,
+      optionValues: state.options.map((o) => o.values.find((x) => x.uid === values[o.uid])?.name ?? ''),
+      ...fields,
+      // Precio vacío = 0 (como en Shopify: el producto se guarda en 0.00).
+      price: fields.price.trim() === '' ? '0' : fields.price,
+      // Stock inicial solo para variantes nuevas (el de las guardadas se ajusta en Inventario).
+      quantities: id
+        ? []
+        : Object.entries(quantities)
+            .filter(([, qty]) => qty.trim() !== '')
+            .map(([locationId, qty]) => ({ locationId: Number(locationId), quantity: Number(qty) })),
     })),
     version: state.version,
   };

@@ -3,7 +3,8 @@ import { ProductFormSkeleton } from '@/components/skeletons';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
-import { getProduct } from '@/features/products/api/products.server';
+import { getLocationOptions } from '@/features/locations/api/locations.server';
+import { getProduct, getProductFacets } from '@/features/products/api/products.server';
 import ProductForm from '@/features/products/components/ProductForm';
 import { can } from '@/features/tenant/permissions';
 import { getMe } from '@/lib/session';
@@ -29,7 +30,12 @@ async function ProductDetail({ params }: Pick<Props, 'params'>) {
     return <Alert severity="info">Tu rol no permite ver el catálogo de productos.</Alert>;
   }
 
-  const product = await getProduct(tenant, productId);
+  const canSeeStock = can(membership, 'inventory:read');
+  const [product, locations, facets] = await Promise.all([
+    getProduct(tenant, productId),
+    canSeeStock ? getLocationOptions(tenant) : Promise.resolve([]),
+    getProductFacets(tenant),
+  ]);
   if (!product) notFound();
 
   return (
@@ -41,6 +47,8 @@ async function ProductDetail({ params }: Pick<Props, 'params'>) {
       product={product}
       currency={product.currency}
       canWrite={can(membership, 'catalog:write')}
+      locations={locations}
+      facets={facets}
     />
   );
 }

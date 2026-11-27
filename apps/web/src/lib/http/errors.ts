@@ -2,6 +2,8 @@ import type { ApiErrorBody } from '@erp/contracts';
 import { isAxiosError } from 'axios';
 
 /** Único tipo de error que ven las features (nunca un AxiosError). */
+const FIELD_PATH = /^[A-Za-z_]\w*(\.\w+)*$/;
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -24,12 +26,14 @@ export function toApiError(error: unknown): ApiError {
   const body = error.response.data as Partial<ApiErrorBody> | undefined;
   const messages = Array.isArray(body?.message) ? body.message : body?.message ? [body.message] : [];
 
-  // La API responde los errores de validación como "campo: mensaje".
+  // La API responde los errores de validación como "campo: mensaje" (campo = ruta, ej. variants.2.sku).
+  // Un mensaje normal con dos puntos ("Shopify rechazó las credenciales: revisa…") no es de un campo.
   const fieldErrors: Record<string, string> = {};
   const general: string[] = [];
   for (const message of messages) {
     const separator = message.indexOf(': ');
-    if (status === 400 && separator > 0) fieldErrors[message.slice(0, separator)] ??= message.slice(separator + 2);
+    const field = separator > 0 ? message.slice(0, separator) : '';
+    if (status === 400 && FIELD_PATH.test(field)) fieldErrors[field] ??= message.slice(separator + 2);
     else general.push(message);
   }
 

@@ -3,8 +3,10 @@
 import type { Paginated } from '@erp/contracts';
 import { PAGE_SIZE_OPTIONS } from '@erp/contracts';
 import Box from '@mui/material/Box';
+import Checkbox from '@mui/material/Checkbox';
 import LinearProgress from '@mui/material/LinearProgress';
 import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -41,6 +43,18 @@ type Props<T> = {
   /** Texto buscado actualmente (para el mensaje de vacío). */
   searchQuery?: string;
   'aria-label'?: string;
+  /**
+   * Selección múltiple (casillas) con acciones en bloque, como en Shopify: al seleccionar, la
+   * cabecera muestra "N seleccionados" y las acciones. La selección es de la página visible.
+   */
+  selection?: {
+    selected: Set<string | number>;
+    onChange: (selected: Set<string | number>) => void;
+    /** Nombre de la fila para el lector de pantalla ("Seleccionar Polera"). */
+    rowLabel: (row: T) => string;
+    /** Botones de acción mostrados cuando hay selección. */
+    actions: ReactNode;
+  };
 };
 
 /**
@@ -55,10 +69,22 @@ export default function DataTable<T>({
   emptyMessage = 'No hay registros.',
   searchQuery,
   'aria-label': ariaLabel,
+  selection,
 }: Props<T>) {
   const { setParams, isPending } = useTableParams(paramPrefix);
   const visible = columns.filter((c) => !c.hidden);
-
+  const pageIds = data.items.map(getRowId);
+  const selectedHere = selection ? pageIds.filter((id) => selection.selected.has(id)).length : 0;
+  const toggle = (ids: (string | number)[], on: boolean) => {
+    if (!selection) return;
+    const next = new Set(selection.selected);
+    for (const id of ids) {
+      if (on) next.add(id);
+      else next.delete(id);
+    }
+    selection.onChange(next);
+  };
+  const colSpan = visible.length + (selection ? 1 : 0);
   return (
     <Paper variant="outlined" sx={{ position: 'relative', overflow: 'hidden' }}>
       {/* Indicador mientras llega la nueva página (la anterior sigue visible) */}
@@ -68,17 +94,41 @@ export default function DataTable<T>({
         <Table size="small" aria-label={ariaLabel}>
           <TableHead>
             <TableRow>
-              {visible.map((c) => (
-                <TableCell key={c.key} align={c.align} sx={{ minWidth: c.minWidth, whiteSpace: c.nowrap ? 'nowrap' : undefined }}>
-                  {c.header}
+              {selection && (
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    size="small"
+                    checked={pageIds.length > 0 && selectedHere === pageIds.length}
+                    indeterminate={selectedHere > 0 && selectedHere < pageIds.length}
+                    onChange={(e) => toggle(pageIds, e.target.checked)}
+                    disabled={pageIds.length === 0}
+                    slotProps={{ input: { 'aria-label': 'Seleccionar todos' } }}
+                  />
                 </TableCell>
-              ))}
+              )}
+              {selection && selectedHere > 0 ? (
+                // Con selección, la cabecera muestra el conteo y las acciones en bloque.
+                <TableCell colSpan={visible.length} sx={{ py: 0.5 }}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mr: 1 }}>
+                      {selectedHere} seleccionado{selectedHere === 1 ? '' : 's'}
+                    </Typography>
+                    {selection.actions}
+                  </Stack>
+                </TableCell>
+              ) : (
+                visible.map((c) => (
+                  <TableCell key={c.key} align={c.align} sx={{ minWidth: c.minWidth, whiteSpace: c.nowrap ? 'nowrap' : undefined }}>
+                    {c.header}
+                  </TableCell>
+                ))
+              )}
             </TableRow>
           </TableHead>
           <TableBody>
             {data.items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={visible.length} sx={{ py: 4, textAlign: 'center' }}>
+                <TableCell colSpan={colSpan} sx={{ py: 4, textAlign: 'center' }}>
                   <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                     {searchQuery ? `Sin resultados para "${searchQuery}".` : emptyMessage}
                   </Typography>
@@ -86,7 +136,17 @@ export default function DataTable<T>({
               </TableRow>
             ) : (
               data.items.map((row) => (
-                <TableRow key={getRowId(row)} hover>
+                <TableRow key={getRowId(row)} hover selected={selection?.selected.has(getRowId(row))}>
+                  {selection && (
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        size="small"
+                        checked={selection.selected.has(getRowId(row))}
+                        onChange={(e) => toggle([getRowId(row)], e.target.checked)}
+                        slotProps={{ input: { 'aria-label': `Seleccionar ${selection.rowLabel(row)}` } }}
+                      />
+                    </TableCell>
+                  )}
                   {visible.map((c) => (
                     <TableCell key={c.key} align={c.align} sx={{ whiteSpace: c.nowrap ? 'nowrap' : undefined }}>
                       {c.render(row)}

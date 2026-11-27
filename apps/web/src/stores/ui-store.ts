@@ -8,13 +8,16 @@ export type UiState = {
    * Aviso global ("Producto creado"): lo muestra el AppShell, así sobrevive a una navegación
    * (ej. crear un producto y volver a la lista).
    */
-  notice: string | null;
+  notice: Notice | null;
 };
+
+export type Notice = { id: number; message: string; severity: 'success' | 'error' | 'info' };
 
 export type UiActions = {
   setMobileNavOpen: (open: boolean) => void;
   toggleMobileNav: () => void;
-  notify: (message: string) => void;
+  /** Muestra un aviso arriba al centro (éxito por defecto). */
+  notify: (message: string, severity?: Notice['severity']) => void;
   clearNotice: () => void;
 };
 
@@ -25,12 +28,15 @@ export const defaultUiState: UiState = {
   notice: null,
 };
 
+let noticeCounter = 0;
+
 // Fábrica: se crea un store por árbol de React (nunca un store global en el servidor).
 export const createUiStore = (initState: UiState = defaultUiState) =>
   createStore<UiStore>()((set) => ({
     ...initState,
     setMobileNavOpen: (open) => set({ mobileNavOpen: open }),
     toggleMobileNav: () => set((state) => ({ mobileNavOpen: !state.mobileNavOpen })),
-    notify: (message) => set({ notice: message }),
+    // Un id por aviso: el mismo mensaje dos veces seguidas vuelve a mostrarse y reinicia el tiempo.
+    notify: (message, severity = 'success') => set({ notice: { id: ++noticeCounter, message, severity } }),
     clearNotice: () => set({ notice: null }),
   }));

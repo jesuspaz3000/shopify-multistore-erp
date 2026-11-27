@@ -2,8 +2,8 @@ import { boolean, index, integer, pgTable, primaryKey, text, uniqueIndex, varcha
 import { fk, id, timestamps, tsz } from '../../shared/database/columns.js';
 import { roles, tenants, tenantUsers } from '../identity/identity.schema.js';
 
-// Tiendas Shopify conectadas. En esta fase se crean sin conexión real a Shopify
-// (los campos de OAuth quedan vacíos hasta configurar la app en Shopify Dev).
+// Tiendas Shopify. Se crean "pendientes de conexión" y se conectan con las credenciales de una app
+// del Dev Dashboard de Shopify (client credentials grant: el token dura 24 h y se renueva solo).
 export const shops = pgTable(
   'shops',
   {
@@ -28,6 +28,9 @@ export const shops = pgTable(
     taxesIncluded: boolean().notNull().default(false),
     primaryLocationId: fk(), // FK a shop_locations cuando exista el módulo de inventario
     apiVersion: varchar({ length: 10 }),
+    // App del Dev Dashboard: el Client ID no es secreto; el secret va cifrado (AES-256-GCM).
+    shopifyClientId: varchar({ length: 255 }),
+    encryptedClientSecret: text(),
     encryptedAccessToken: text(),
     encryptedRefreshToken: text(),
     tokenExpiresAt: tsz(),

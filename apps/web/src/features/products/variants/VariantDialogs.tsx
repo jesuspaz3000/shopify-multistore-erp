@@ -12,22 +12,18 @@ import InputAdornment from '@mui/material/InputAdornment';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
+import type { LocationOptionResponse } from '@erp/contracts';
 import { useState } from 'react';
 import { InventoryFields, PricingFields, ShippingFields } from './VariantFields';
 import type { OptionDraft, VariantFields } from './variant-ops';
 
-function Block({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <Stack spacing={1.5}>
-      <Typography variant="subtitle2">{title}</Typography>
-      {children}
-    </Stack>
-  );
-}
 
 type VariantDialogProps = {
   label: string;
+  locations: LocationOptionResponse[];
+  /** Disponible por bodega (variante guardada); undefined = variante nueva (cantidad inicial). */
+  levels?: { locationId: number; available: number }[];
+  inventoryHref?: string;
   fields: VariantFields;
   errors: Record<string, string>;
   currency: string;
@@ -39,25 +35,20 @@ type VariantDialogProps = {
 };
 
 /** Detalle de una variante: precio, inventario y envío (se aplica al pulsar "Listo"). */
-export function VariantDialog({ label, fields, errors, currency, disabled, canDelete, onSave, onDelete, onClose }: VariantDialogProps) {
+export function VariantDialog(props: VariantDialogProps) {
+  const { label, fields, errors, currency, disabled, canDelete, onSave, onDelete, onClose, locations, levels, inventoryHref } = props;
   const [draft, setDraft] = useState(fields);
   const change = (patch: Partial<VariantFields>) => setDraft((prev) => ({ ...prev, ...patch }));
-  const props = { fields: draft, onChange: change, errors, currency, disabled };
+  const fieldProps = { fields: draft, onChange: change, errors, currency, disabled };
 
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>Variante {label}</DialogTitle>
       <DialogContent>
         <Stack spacing={3} sx={{ pt: 1 }} divider={<Divider />}>
-          <Block title="Precio">
-            <PricingFields {...props} />
-          </Block>
-          <Block title="Inventario">
-            <InventoryFields {...props} />
-          </Block>
-          <Block title="Envío">
-            <ShippingFields {...props} />
-          </Block>
+          <PricingFields {...fieldProps} />
+          <InventoryFields {...fieldProps} locations={locations} levels={levels} inventoryHref={inventoryHref} />
+          <ShippingFields {...fieldProps} />
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between' }}>

@@ -2,7 +2,11 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query, UseGu
 import { ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   type Paginated,
+  type ProductBulkData,
+  type ProductBulkResponse,
+  productBulkSchema,
   type ProductData,
+  type ProductFacetsResponse,
   productInputSchema,
   type ProductListItem,
   type ProductResponse,
@@ -33,6 +37,26 @@ export class ProductsController {
     @Query({ schema: productsQuerySchema }) query: ProductsQuery,
   ): Promise<Paginated<ProductListItem>> {
     return this.products.list(tenant, query);
+  }
+
+  // Rutas estáticas antes de las dinámicas (:productId).
+  @Get('facets')
+  @RequirePermission('catalog:read')
+  @ApiOperation({ summary: 'Tipos, proveedores y etiquetas ya usados (sugerencias del formulario)' })
+  facets(@CurrentTenant() tenant: TenantContext): Promise<ProductFacetsResponse> {
+    return this.products.facets(tenant);
+  }
+
+  @Post('bulk')
+  @HttpCode(200)
+  @RequirePermission('catalog:write')
+  @ApiOperation({ summary: 'Acción en bloque: activar, pasar a borrador, archivar o eliminar varios productos' })
+  bulk(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+    @Body({ schema: productBulkSchema }) body: ProductBulkData,
+  ): Promise<ProductBulkResponse> {
+    return this.products.bulk(tenant, auth.user.id, body);
   }
 
   @Get(':productId')

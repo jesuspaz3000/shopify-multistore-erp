@@ -5,6 +5,7 @@ import { paginationQuerySchema } from '../common/index.js';
 
 /** Motivos de ajuste (equivalen a los "reason" de inventoryAdjustQuantities en Shopify). */
 export const ADJUSTMENT_REASONS = [
+  'initial',
   'received',
   'correction',
   'cycle_count_available',
@@ -14,6 +15,9 @@ export const ADJUSTMENT_REASONS = [
   'other',
 ] as const;
 export type AdjustmentReason = (typeof ADJUSTMENT_REASONS)[number];
+
+/** Motivos que se eligen al ajustar a mano ('initial' lo pone el sistema al crear la variante con stock). */
+export const MANUAL_ADJUSTMENT_REASONS = ADJUSTMENT_REASONS.filter((r) => r !== 'initial') as Exclude<AdjustmentReason, 'initial'>[];
 
 /** Máximo de líneas por ajuste (como un documento de inventario). */
 export const MAX_ADJUSTMENT_CHANGES = 250;
@@ -46,7 +50,7 @@ const adjustmentChangeSchema = z
 
 export const adjustInventorySchema = z.object({
   locationId: z.number().int().positive(),
-  reason: z.enum(ADJUSTMENT_REASONS, 'Motivo inválido'),
+  reason: z.enum(MANUAL_ADJUSTMENT_REASONS as [Exclude<AdjustmentReason, 'initial'>, ...Exclude<AdjustmentReason, 'initial'>[]], 'Motivo inválido'),
   note: z
     .union([z.literal(''), z.string().trim().max(255)])
     .nullish()

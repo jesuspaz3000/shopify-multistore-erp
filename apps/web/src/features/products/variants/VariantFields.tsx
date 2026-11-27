@@ -1,22 +1,31 @@
 'use client';
 
-import { WEIGHT_UNITS } from '@erp/contracts';
+import { type LocationOptionResponse, WEIGHT_UNITS } from '@erp/contracts';
+import AddIcon from '@mui/icons-material/Add';
 import Alert from '@mui/material/Alert';
+import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
+import Chip from '@mui/material/Chip';
+import Divider from '@mui/material/Divider';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Grid from '@mui/material/Grid';
 import InputAdornment from '@mui/material/InputAdornment';
 import MenuItem from '@mui/material/MenuItem';
+import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import { useMemo, useState } from 'react';
 import Link from '@/components/ui/Link';
+import { allCountries } from '@/lib/countries';
 import { WEIGHT_UNIT_LABELS } from '../product-labels';
 import { profitAndMargin, type VariantFields } from './variant-ops';
 
-// Campos de una variante, en los mismos bloques que Shopify: Precio, Inventario y Envío.
-// Se usan en el producto sin opciones (como secciones) y en el diálogo de cada variante.
+// Bloques de una variante como en Shopify: Precio, Inventario y Envío. Cada uno muestra lo principal
+// y deja los campos secundarios como chips ("+ Precio de comparación") que se despliegan al hacer clic.
+// Se usan como secciones del producto sin opciones y dentro del diálogo de cada variante.
 
 type Props = {
   fields: VariantFields;
@@ -28,63 +37,146 @@ type Props = {
 };
 
 const money = (currency: string) => ({
-  slotProps: { input: { startAdornment: <InputAdornment position="start">{currency}</InputAdornment> }, htmlInput: { inputMode: 'decimal' as const } },
+  slotProps: {
+    input: { startAdornment: <InputAdornment position="start">{currency}</InputAdornment> },
+    htmlInput: { inputMode: 'decimal' as const },
+  },
 });
 
-export function PricingFields({ fields, onChange, errors, currency, disabled }: Props) {
-  const result = profitAndMargin(fields.price, fields.cost);
+/** Campos secundarios: visibles si se abrieron, tienen valor o tienen error. */
+function useReveal(initial: Record<string, boolean>) {
+  const [open, setOpen] = useState(() => new Set(Object.keys(initial).filter((k) => initial[k])));
+  return {
+    shown: (key: string, force = false) => force || open.has(key),
+    reveal: (key: string) => setOpen((prev) => new Set(prev).add(key)),
+  };
+}
+
+/** Fila de chips para desplegar campos secundarios. */
+function MoreChips({ items, disabled }: { items: { key: string; label: string; value?: string; onClick: () => void }[]; disabled?: boolean }) {
+  if (items.length === 0) return null;
   return (
-    <Grid container spacing={2}>
-      <Grid size={{ xs: 12, sm: 6 }}>
-        <TextField
-          label="Precio"
-          value={fields.price}
-          onChange={(e) => onChange({ price: e.target.value })}
-          error={!!errors.price}
-          helperText={errors.price}
-          disabled={disabled}
-          fullWidth
-          {...money(currency)}
-        />
+    <>
+      <Divider sx={{ mx: -2.5 }} />
+      <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1, pt: 1.5 }}>
+        {items.map((item) => (
+          <Chip
+            key={item.key}
+            size="small"
+            variant="outlined"
+            disabled={disabled}
+            icon={item.value ? undefined : <AddIcon />}
+            onClick={item.onClick}
+            label={
+              item.value ? (
+                <>
+                  {item.label} <strong>· {item.value}</strong>
+                </>
+              ) : (
+                item.label
+              )
+            }
+          />
+        ))}
+      </Stack>
+    </>
+  );
+}
+
+function Header({ title, action }: { title: string; action?: React.ReactNode }) {
+  return (
+    <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 2, minHeight: 32 }}>
+      <Typography variant="subtitle1" component="h2" sx={{ fontWeight: 600 }}>
+        {title}
+      </Typography>
+      {action}
+    </Stack>
+  );
+}
+
+// ---------------------------------------------------------------- Precio
+
+export function PricingFields({ fields, onChange, errors, currency, disabled }: Props) {
+  const { shown, reveal } = useReveal({ compareAtPrice: !!fields.compareAtPrice, cost: !!fields.cost, taxable: !fields.taxable });
+  const result = profitAndMargin(fields.price, fields.cost);
+  const showCompare = shown('compareAtPrice', !!errors.compareAtPrice || !!fields.compareAtPrice);
+  const showCost = shown('cost', !!errors.cost || !!fields.cost);
+  const showTax = shown('taxable');
+
+  return (
+    <Box>
+      <Header title="Precio" />
+      <Grid container spacing={2} sx={{ mb: 2 }}>
+        <Grid size={{ xs: 12, sm: 6 }}>
+          <TextField
+            label="Precio"
+            value={fields.price}
+            onChange={(e) => onChange({ price: e.target.value })}
+            error={!!errors.price}
+            helperText={errors.price}
+            disabled={disabled}
+            placeholder="0.00"
+            fullWidth
+            {...money(currency)}
+          />
+        </Grid>
+        {showCompare && (
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              label="Precio de comparación"
+              value={fields.compareAtPrice}
+              onChange={(e) => onChange({ compareAtPrice: e.target.value })}
+              error={!!errors.compareAtPrice}
+              helperText={errors.compareAtPrice ?? 'Precio "antes", se muestra tachado'}
+              disabled={disabled}
+              autoFocus={!fields.compareAtPrice}
+              fullWidth
+              {...money(currency)}
+            />
+          </Grid>
+        )}
+        {showCost && (
+          <>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                label="Costo por artículo"
+                value={fields.cost}
+                onChange={(e) => onChange({ cost: e.target.value })}
+                error={!!errors.cost}
+                helperText={errors.cost ?? 'Los clientes no lo ven'}
+                disabled={disabled}
+                autoFocus={!fields.cost}
+                fullWidth
+                {...money(currency)}
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 3 }}>
+              <Metric label="Ganancia" value={result ? `${currency} ${result.profit}` : '—'} />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 3 }}>
+              <Metric label="Margen" value={result?.margin ?? '—'} />
+            </Grid>
+          </>
+        )}
+        {showTax && (
+          <Grid size={12}>
+            <FormControlLabel
+              disabled={disabled}
+              control={<Checkbox checked={fields.taxable} onChange={(e) => onChange({ taxable: e.target.checked })} />}
+              label="Cobrar impuestos sobre este producto"
+            />
+          </Grid>
+        )}
       </Grid>
-      <Grid size={{ xs: 12, sm: 6 }}>
-        <TextField
-          label="Precio comparativo"
-          value={fields.compareAtPrice}
-          onChange={(e) => onChange({ compareAtPrice: e.target.value })}
-          error={!!errors.compareAtPrice}
-          helperText={errors.compareAtPrice ?? 'Precio "antes" que se muestra tachado'}
-          disabled={disabled}
-          fullWidth
-          {...money(currency)}
-        />
-      </Grid>
-      <Grid size={12}>
-        <FormControlLabel
-          disabled={disabled}
-          control={<Checkbox checked={fields.taxable} onChange={(e) => onChange({ taxable: e.target.checked })} />}
-          label="Cobrar impuestos sobre este producto"
-        />
-      </Grid>
-      <Grid size={{ xs: 12, sm: 4 }}>
-        <TextField
-          label="Costo por artículo"
-          value={fields.cost}
-          onChange={(e) => onChange({ cost: e.target.value })}
-          error={!!errors.cost}
-          helperText={errors.cost ?? 'Los clientes no lo ven'}
-          disabled={disabled}
-          fullWidth
-          {...money(currency)}
-        />
-      </Grid>
-      <Grid size={{ xs: 6, sm: 4 }}>
-        <Metric label="Ganancia" value={result ? `${currency} ${result.profit}` : '—'} />
-      </Grid>
-      <Grid size={{ xs: 6, sm: 4 }}>
-        <Metric label="Margen" value={result?.margin ?? '—'} />
-      </Grid>
-    </Grid>
+      <MoreChips
+        disabled={disabled}
+        items={[
+          ...(!showCompare ? [{ key: 'compare', label: 'Precio de comparación', onClick: () => reveal('compareAtPrice') }] : []),
+          ...(!showTax ? [{ key: 'tax', label: 'Cobrar impuesto', value: fields.taxable ? 'Sí' : 'No', onClick: () => reveal('taxable') }] : []),
+          ...(!showCost ? [{ key: 'cost', label: 'Costo por artículo', onClick: () => reveal('cost') }] : []),
+        ]}
+      />
+    </Box>
   );
 }
 
@@ -99,132 +191,272 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+// ---------------------------------------------------------------- Inventario
+
 type InventoryProps = Props & {
-  /** Disponible total en bodegas (variante ya guardada). */
-  available?: number;
-  /** Página de Inventario para ajustar las cantidades. */
+  /** Bodegas activas: cantidad inicial (variante nueva) o disponible actual (guardada). */
+  locations: LocationOptionResponse[];
+  /** Disponible por bodega de una variante ya guardada (undefined = variante nueva). */
+  levels?: { locationId: number; available: number }[];
+  /** Página de Inventario para ajustar las cantidades de una variante guardada. */
   inventoryHref?: string;
+  /** Configuración → Bodegas (si aún no hay ninguna). */
+  locationsHref?: string;
 };
 
-export function InventoryFields({ fields, onChange, errors, disabled, available, inventoryHref }: InventoryProps) {
+export function InventoryFields(props: InventoryProps) {
+  const { fields, onChange, errors, disabled, locations, levels, inventoryHref, locationsHref } = props;
+  const { shown, reveal } = useReveal({ sku: !!fields.sku, barcode: !!fields.barcode, policy: fields.inventoryPolicy === 'CONTINUE' });
+  const isNew = levels === undefined;
+  const showSku = shown('sku', !!errors.sku || !!fields.sku);
+  const showBarcode = shown('barcode', !!errors.barcode || !!fields.barcode);
+  const showPolicy = fields.tracked && shown('policy', fields.inventoryPolicy === 'CONTINUE');
+  const quantityError = Object.entries(errors).find(([k]) => k.startsWith('quantities'))?.[1];
+
   return (
-    <Grid container spacing={2}>
-      <Grid size={12}>
-        <FormControlLabel
-          disabled={disabled}
-          control={<Checkbox checked={fields.tracked} onChange={(e) => onChange({ tracked: e.target.checked })} />}
-          label="Controlar cantidad"
-        />
-        {fields.tracked && (
-          <Alert
-            severity="info"
-            variant="outlined"
-            sx={{ mt: 1 }}
-            action={
-              inventoryHref && available !== undefined ? (
-                <Button component={Link} href={inventoryHref} size="small" color="inherit">
-                  Ajustar
-                </Button>
-              ) : undefined
-            }
-          >
-            {available !== undefined ? (
-              <>
-                <strong>{available}</strong> disponible{available === 1 ? '' : 's'} sumando todas las bodegas. Las cantidades se
-                ajustan en Inventario.
-              </>
-            ) : (
-              <>Al guardar, registra las cantidades por bodega en <strong>Inventario</strong>.</>
-            )}
-          </Alert>
-        )}
-      </Grid>
-      <Grid size={{ xs: 12, sm: 6 }}>
-        <TextField
-          label="SKU (código de artículo)"
-          value={fields.sku}
-          onChange={(e) => onChange({ sku: e.target.value })}
-          error={!!errors.sku}
-          helperText={errors.sku}
-          disabled={disabled}
-          fullWidth
-        />
-      </Grid>
-      <Grid size={{ xs: 12, sm: 6 }}>
-        <TextField
-          label="Código de barras (ISBN, UPC, GTIN…)"
-          value={fields.barcode}
-          onChange={(e) => onChange({ barcode: e.target.value })}
-          error={!!errors.barcode}
-          helperText={errors.barcode}
-          disabled={disabled}
-          fullWidth
-        />
-      </Grid>
-      {fields.tracked && (
-        <Grid size={12}>
+    <Box>
+      <Header
+        title="Inventario"
+        action={
           <FormControlLabel
             disabled={disabled}
-            control={
-              <Checkbox
-                checked={fields.inventoryPolicy === 'CONTINUE'}
-                onChange={(e) => onChange({ inventoryPolicy: e.target.checked ? 'CONTINUE' : 'DENY' })}
-              />
-            }
-            label="Seguir vendiendo cuando no haya stock"
+            labelPlacement="start"
+            control={<Switch size="small" checked={fields.tracked} onChange={(e) => onChange({ tracked: e.target.checked })} />}
+            label={<Typography variant="body2">Inventario con seguimiento</Typography>}
           />
+        }
+      />
+
+      {fields.tracked && (
+        <Box sx={{ mb: 2, border: 1, borderColor: 'divider', borderRadius: 1.5, overflow: 'hidden' }}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', px: 2, py: 1, bgcolor: 'action.hover' }}>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              Bodega
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              {isNew ? 'Cantidad' : 'Disponible'}
+            </Typography>
+          </Stack>
+          {locations.length === 0 ? (
+            <Box sx={{ px: 2, py: 1.5 }}>
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                Aún no hay bodegas.{' '}
+                {locationsHref && (
+                  <Link href={locationsHref} style={{ color: 'inherit' }}>
+                    Crea una
+                  </Link>
+                )}{' '}
+                para registrar cantidades.
+              </Typography>
+            </Box>
+          ) : (
+            locations.map((location, index) => {
+              const current = levels?.find((l) => l.locationId === location.id)?.available ?? 0;
+              return (
+                <Box key={location.id}>
+                  {index > 0 && <Divider />}
+                  <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1 }}>
+                    <Typography variant="body2">{location.name}</Typography>
+                    {isNew ? (
+                      <TextField
+                        size="small"
+                        value={fields.quantities[location.id] ?? ''}
+                        placeholder="0"
+                        disabled={disabled}
+                        onChange={(e) => onChange({ quantities: { ...fields.quantities, [location.id]: e.target.value } })}
+                        sx={{ width: 110 }}
+                        slotProps={{ htmlInput: { inputMode: 'numeric', style: { textAlign: 'right' }, 'aria-label': `Cantidad en ${location.name}` } }}
+                      />
+                    ) : (
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: current <= 0 ? 'error.main' : undefined }}>
+                        {current}
+                      </Typography>
+                    )}
+                  </Stack>
+                </Box>
+              );
+            })
+          )}
+          {!isNew && inventoryHref && locations.length > 0 && (
+            <>
+              <Divider />
+              <Stack direction="row" sx={{ justifyContent: 'flex-end', px: 1, py: 0.5 }}>
+                <Button component={Link} href={inventoryHref} size="small">
+                  Ajustar cantidades
+                </Button>
+              </Stack>
+            </>
+          )}
+        </Box>
+      )}
+      {quantityError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Cantidad: {quantityError}
+        </Alert>
+      )}
+
+      {(showSku || showBarcode || showPolicy) && (
+        <Grid container spacing={2} sx={{ mb: 2 }}>
+          {showSku && (
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                label="SKU (código de artículo)"
+                value={fields.sku}
+                onChange={(e) => onChange({ sku: e.target.value })}
+                error={!!errors.sku}
+                helperText={errors.sku}
+                disabled={disabled}
+                autoFocus={!fields.sku}
+                fullWidth
+              />
+            </Grid>
+          )}
+          {showBarcode && (
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                label="Código de barras (ISBN, UPC, GTIN…)"
+                value={fields.barcode}
+                onChange={(e) => onChange({ barcode: e.target.value })}
+                error={!!errors.barcode}
+                helperText={errors.barcode}
+                disabled={disabled}
+                autoFocus={!fields.barcode}
+                fullWidth
+              />
+            </Grid>
+          )}
+          {showPolicy && (
+            <Grid size={12}>
+              <FormControlLabel
+                disabled={disabled}
+                control={
+                  <Checkbox
+                    checked={fields.inventoryPolicy === 'CONTINUE'}
+                    onChange={(e) => onChange({ inventoryPolicy: e.target.checked ? 'CONTINUE' : 'DENY' })}
+                  />
+                }
+                label="Vender cuando no haya existencias"
+              />
+            </Grid>
+          )}
         </Grid>
       )}
-    </Grid>
+      <MoreChips
+        disabled={disabled}
+        items={[
+          ...(!showSku ? [{ key: 'sku', label: 'SKU', onClick: () => reveal('sku') }] : []),
+          ...(!showBarcode ? [{ key: 'barcode', label: 'Código de barras', onClick: () => reveal('barcode') }] : []),
+          ...(fields.tracked && !showPolicy
+            ? [{ key: 'policy', label: 'Vender sin existencias', value: 'Desactivado', onClick: () => reveal('policy') }]
+            : []),
+        ]}
+      />
+    </Box>
   );
 }
 
+// ---------------------------------------------------------------- Envío
+
 export function ShippingFields({ fields, onChange, errors, disabled }: Props) {
+  const countries = useMemo(() => allCountries(), []);
+  const { shown, reveal } = useReveal({ origin: !!fields.countryCodeOfOrigin, hs: !!fields.harmonizedSystemCode });
+  const showOrigin = shown('origin', !!errors.countryCodeOfOrigin || !!fields.countryCodeOfOrigin);
+  const showHs = shown('hs', !!errors.harmonizedSystemCode || !!fields.harmonizedSystemCode);
+
   return (
-    <Grid container spacing={2}>
-      <Grid size={12}>
-        <FormControlLabel
-          disabled={disabled}
-          control={<Checkbox checked={fields.requiresShipping} onChange={(e) => onChange({ requiresShipping: e.target.checked })} />}
-          label="Es un producto físico"
-        />
-      </Grid>
+    <Box>
+      <Header
+        title="Envío"
+        action={
+          <FormControlLabel
+            disabled={disabled}
+            labelPlacement="start"
+            control={<Switch size="small" checked={fields.requiresShipping} onChange={(e) => onChange({ requiresShipping: e.target.checked })} />}
+            label={<Typography variant="body2">Producto físico</Typography>}
+          />
+        }
+      />
       {fields.requiresShipping ? (
-        <Grid size={{ xs: 12, sm: 8 }}>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <TextField
-              label="Peso"
-              value={fields.weight}
-              onChange={(e) => onChange({ weight: e.target.value })}
-              error={!!errors.weight}
-              helperText={errors.weight ?? 'Para calcular el envío'}
-              disabled={disabled}
-              slotProps={{ htmlInput: { inputMode: 'decimal' } }}
-              fullWidth
-            />
-            <TextField
-              select
-              label="Unidad"
-              value={fields.weightUnit}
-              onChange={(e) => onChange({ weightUnit: e.target.value as VariantFields['weightUnit'] })}
-              disabled={disabled}
-              sx={{ width: 110, flexShrink: 0 }}
-            >
-              {WEIGHT_UNITS.map((u) => (
-                <MenuItem key={u} value={u}>
-                  {WEIGHT_UNIT_LABELS[u]}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Box>
+        <Grid container spacing={2} sx={{ mb: 2 }}>
+          <Grid size={{ xs: 12, sm: 8 }}>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <TextField
+                label="Peso"
+                value={fields.weight}
+                onChange={(e) => onChange({ weight: e.target.value })}
+                error={!!errors.weight}
+                helperText={errors.weight ?? 'Para calcular el envío'}
+                disabled={disabled}
+                placeholder="0.0"
+                slotProps={{ htmlInput: { inputMode: 'decimal' } }}
+                fullWidth
+              />
+              <TextField
+                select
+                label="Unidad"
+                value={fields.weightUnit}
+                onChange={(e) => onChange({ weightUnit: e.target.value as VariantFields['weightUnit'] })}
+                disabled={disabled}
+                sx={{ width: 110, flexShrink: 0 }}
+              >
+                {WEIGHT_UNITS.map((u) => (
+                  <MenuItem key={u} value={u}>
+                    {WEIGHT_UNIT_LABELS[u]}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Box>
+          </Grid>
+          {showOrigin && (
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <Autocomplete
+                options={countries}
+                disabled={disabled}
+                value={countries.find((c) => c.code === fields.countryCodeOfOrigin) ?? null}
+                onChange={(_, country) => onChange({ countryCodeOfOrigin: country?.code ?? '' })}
+                getOptionLabel={(c) => c.label}
+                isOptionEqualToValue={(a, b) => a.code === b.code}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="País de origen"
+                    error={!!errors.countryCodeOfOrigin}
+                    helperText={errors.countryCodeOfOrigin ?? 'Donde se fabricó (aduanas)'}
+                  />
+                )}
+              />
+            </Grid>
+          )}
+          {showHs && (
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                label="Código SA (Sistema Armonizado)"
+                value={fields.harmonizedSystemCode}
+                onChange={(e) => onChange({ harmonizedSystemCode: e.target.value })}
+                error={!!errors.harmonizedSystemCode}
+                helperText={errors.harmonizedSystemCode ?? 'Clasificación arancelaria (ej. 610910)'}
+                disabled={disabled}
+                autoFocus={!fields.harmonizedSystemCode}
+                slotProps={{ htmlInput: { inputMode: 'numeric' } }}
+                fullWidth
+              />
+            </Grid>
+          )}
         </Grid>
       ) : (
-        <Grid size={12}>
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            Producto digital o servicio: no se envía.
-          </Typography>
-        </Grid>
+        <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
+          Producto digital o servicio: no se envía.
+        </Typography>
       )}
-    </Grid>
+      {fields.requiresShipping && (
+        <MoreChips
+          disabled={disabled}
+          items={[
+            ...(!showOrigin ? [{ key: 'origin', label: 'País de origen', onClick: () => reveal('origin') }] : []),
+            ...(!showHs ? [{ key: 'hs', label: 'Código SA', onClick: () => reveal('hs') }] : []),
+          ]}
+        />
+      )}
+    </Box>
   );
 }

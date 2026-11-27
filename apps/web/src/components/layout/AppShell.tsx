@@ -2,6 +2,7 @@
 
 import type { MeResponse, TenantMembership } from '@erp/contracts';
 import MenuIcon from '@mui/icons-material/Menu';
+import Alert from '@mui/material/Alert';
 import AppBar from '@mui/material/AppBar';
 import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
@@ -10,6 +11,7 @@ import Snackbar from '@mui/material/Snackbar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
 import ColorModeToggle from '@/components/ui/ColorModeToggle';
 import UserMenu from '@/features/auth/components/UserMenu';
 import ShopSwitcher, { ALL_SHOPS } from '@/features/shop-switcher/components/ShopSwitcher';
@@ -36,6 +38,9 @@ export default function AppShell({ me, membership, shops, children }: AppShellPr
   const toggleMobileNav = useUiStore((s) => s.toggleMobileNav);
   const notice = useUiStore((s) => s.notice);
   const clearNotice = useUiStore((s) => s.clearNotice);
+  // Se conserva el último aviso mientras se desvanece (si no, sale vacío durante la animación de cierre).
+  const [shown, setShown] = useState(notice);
+  if (notice && notice !== shown) setShown(notice);
 
   const drawerContent = (
     <>
@@ -92,7 +97,20 @@ export default function AppShell({ me, membership, shops, children }: AppShellPr
         <Box sx={{ p: { xs: 2, sm: 3 } }}>{children}</Box>
       </Box>
 
-      <Snackbar open={!!notice} autoHideDuration={3500} onClose={(_, reason) => reason !== 'clickaway' && clearNotice()} message={notice} />
+      {/* Aviso global arriba al centro; vive aquí para sobrevivir a navegaciones y router.refresh(). */}
+      <Snackbar
+        key={shown?.id}
+        open={!!notice}
+        autoHideDuration={4000}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        onClose={(_, reason) => reason !== 'clickaway' && clearNotice()}
+      >
+        {shown ? (
+          <Alert severity={shown.severity} variant="filled" onClose={clearNotice} sx={{ boxShadow: 3, alignItems: 'center' }}>
+            {shown.message}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
     </Box>
   );
 }

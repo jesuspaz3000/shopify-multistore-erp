@@ -35,7 +35,9 @@ export default function SeoSection(props: Props) {
   const { title, description, seoTitle, seoDescription, handle, savedHandle, errors, disabled, onChange } = props;
   const [open, setOpen] = useState(Object.keys(errors).some((k) => k.startsWith('seo') || k === 'handle'));
   const shownTitle = seoTitle || title;
-  const shownDescription = seoDescription || description.slice(0, 160);
+  // La descripción es HTML del editor: en la vista previa va como texto plano.
+  const plain = description.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const shownDescription = seoDescription || plain.slice(0, 160);
   const shownHandle = handle || savedHandle || slugPreview(title);
   const anyError = !!(errors.seoTitle || errors.seoDescription || errors.handle);
 

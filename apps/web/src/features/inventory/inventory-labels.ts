@@ -1,6 +1,7 @@
 import type { AdjustmentReason } from '@erp/contracts';
 
 export const REASON_LABELS: Record<AdjustmentReason, string> = {
+  initial: 'Stock inicial',
   received: 'Recepción de mercadería',
   correction: 'Corrección',
   cycle_count_available: 'Conteo de inventario',
