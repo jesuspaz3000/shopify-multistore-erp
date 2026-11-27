@@ -47,6 +47,8 @@ export type TenantMembership = {
   tenantId: number;
   slug: string;
   companyName: string;
+  /** Moneda de reporte de la empresa (precios de lista y costos del catálogo maestro). */
+  reportingCurrency: string;
   role: string;
   /** Permisos del rol en esta empresa ('*' = todos). */
   permissions: string[];

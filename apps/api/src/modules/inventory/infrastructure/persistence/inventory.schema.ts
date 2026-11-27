@@ -1,11 +1,39 @@
 import { sql } from 'drizzle-orm';
-import { boolean, index, integer, numeric, pgTable, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, jsonb, numeric, pgTable, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import { fk, id, timestamps, tsz } from '../../../../shared/database/columns.js';
 import { tenants } from '../../../identity/identity.schema.js';
 import { shops } from '../../../shops/shops.schema.js';
 
-// Tablas ORM de inventario. Por ahora: bodegas (locations) y su vínculo con cada tienda (shop_locations).
-// Pendiente: inventory_items, inventory_levels, shop_inventory_levels, inventory_adjustments (kardex).
+// Tablas ORM de inventario: ítems de inventario, bodegas (locations) y su vínculo con cada tienda (shop_locations).
+// Pendiente: inventory_levels, shop_inventory_levels, inventory_adjustments (kardex).
+
+/**
+ * Ítem de inventario MAESTRO (físico, costo, aduana, peso). 1:1 con una variante del catálogo.
+ * En cada tienda existe un InventoryItem distinto (su GID irá en shopify_resource_links).
+ */
+export const inventoryItems = pgTable(
+  'inventory_items',
+  {
+    id: id(),
+    tenantId: fk()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    sku: varchar({ length: 255 }),
+    tracked: boolean().notNull().default(true), // si se lleva control de stock
+    requiresShipping: boolean().notNull().default(true),
+    unitCost: numeric({ precision: 18, scale: 4 }),
+    unitCostCurrency: varchar({ length: 3 }),
+    countryCodeOfOrigin: varchar({ length: 2 }),
+    provinceCodeOfOrigin: varchar({ length: 10 }),
+    harmonizedSystemCode: varchar({ length: 20 }),
+    countryHarmonizedSystemCodes: jsonb(), // [{countryCode, harmonizedSystemCode}]
+    weightValue: numeric({ precision: 12, scale: 4 }),
+    weightUnit: varchar({ length: 10 }), // GRAMS | KILOGRAMS | OUNCES | POUNDS
+    version: integer().notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [index('inventory_items_tenant_sku_idx').on(t.tenantId, t.sku)],
+);
 
 /** Ubicación física MAESTRA del ERP. Una bodega puede abastecer a varias tiendas. */
 export const locations = pgTable(

@@ -4,6 +4,7 @@ import { z } from 'zod';
 // Mensajes de validación por defecto en español (API y frontend comparten esta configuración).
 z.config(z.locales.es());
 
+export * from './catalog/index.js';
 export * from './common/index.js';
 export * from './identity/index.js';
 export * from './locations/index.js';

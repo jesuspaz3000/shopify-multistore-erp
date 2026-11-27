@@ -1,2 +1,3 @@
-// API publica de catalogo maestro (productos, variantes, media, listings por tienda): lo unico que otros modulos pueden importar.
-export {};
+// API pública del catálogo maestro: lo único que otros módulos pueden importar.
+export { CatalogModule } from './catalog.module.js';
+export { ProductsService } from './products/products.service.js';

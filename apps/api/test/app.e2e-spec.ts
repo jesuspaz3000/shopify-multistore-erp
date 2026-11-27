@@ -214,6 +214,138 @@ describe('API (e2e)', () => {
       expect((await a.agent.get(base).expect(200)).body.total).toBe(1);
       await a.agent.post(base).send({ code: 'BOD-LIMA-01', name: 'Bodega Lima nueva' }).expect(201);
     });
+
+    it('productos: opciones y variantes, SKU único, edición que conserva variantes y concurrencia', async () => {
+      const a = await registerCompany('Empresa Catalogo E2E');
+      const b = await registerCompany('Empresa Catalogo B E2E');
+      const base = `/tenants/${a.slug}/products`;
+
+      // Sin opciones: una sola variante "Default Title".
+      const simple = (
+        await a.agent
+          .post(base)
+          .send({ title: 'Taza Blanca', status: 'ACTIVE', variants: [{ optionValues: [], sku: 'TAZA-01', price: '12.5', cost: '4' }] })
+          .expect(201)
+      ).body;
+      expect(simple).toMatchObject({ handle: 'taza-blanca', status: 'ACTIVE', currency: 'USD', version: 1, options: [] });
+      expect(simple.variants).toMatchObject([
+        { title: 'Default Title', sku: 'TAZA-01', price: '12.50', cost: '4', tracked: true, inventoryPolicy: 'DENY', compareAtPrice: null },
+      ]);
+
+      // Como en Shopify: precio obligatorio (0 vale), precio comparativo mayor que el precio, URL y SEO editables.
+      await a.agent.post(base).send({ title: 'Sin precio', variants: [{ optionValues: [] }] }).expect(400);
+      await a.agent.post(base).send({ title: 'Comparativo', variants: [{ optionValues: [], price: '10', compareAtPrice: '9' }] }).expect(400);
+      const custom = (
+        await a.agent
+          .post(base)
+          .send({
+            title: 'Gorro',
+            handle: 'Gorro-Lana',
+            seoTitle: 'Gorro de lana',
+            seoDescription: 'Abrigado',
+            variants: [{ optionValues: [], price: '0', compareAtPrice: '15', inventoryPolicy: 'CONTINUE' }],
+          })
+          .expect(201)
+      ).body;
+      expect(custom).toMatchObject({ handle: 'gorro-lana', seoTitle: 'Gorro de lana', seoDescription: 'Abrigado' });
+      expect(custom.variants[0]).toMatchObject({ price: '0', compareAtPrice: '15', inventoryPolicy: 'CONTINUE' });
+      await a.agent.post(base).send({ title: 'Otro', handle: 'gorro-lana', variants: [{ optionValues: [], price: '1' }] }).expect(409);
+      await a.agent
+        .put(`${base}/${simple.id}`)
+        .send({ title: 'Taza Blanca', handle: 'gorro-lana', variants: [{ id: simple.variants[0].id, optionValues: [], sku: 'TAZA-01', price: '12.5' }] })
+        .expect(409);
+      await a.agent.delete(`${base}/${custom.id}`).expect(204);
+
+      // Con opciones: valores normalizados según la opción; validaciones de combinaciones.
+      const shirt = {
+        title: 'Polera Básica',
+        vendor: 'Marca X',
+        tags: ['verano', 'Verano', 'algodón'],
+        options: [
+          { name: 'Color', values: ['Rojo', 'Azul'] },
+          { name: 'Talla', values: ['S', 'M'] },
+        ],
+        variants: [
+          { optionValues: ['rojo', 'S'], sku: 'POL-R-S', price: '20' },
+          { optionValues: ['Rojo', 'M'], sku: 'POL-R-M', price: '22.9' },
+          { optionValues: ['Azul', 'S'], sku: 'POL-A-S', price: '20' },
+        ],
+      };
+      await a.agent.post(base).send({ ...shirt, variants: [...shirt.variants, { optionValues: ['Verde', 'S'] }] }).expect(400);
+      await a.agent.post(base).send({ ...shirt, variants: [shirt.variants[0], { ...shirt.variants[0], sku: 'OTRO' }] }).expect(400);
+      // SKU ya usado por otro producto (sin distinguir mayúsculas): 409 con mensaje claro.
+      const dup = await a.agent.post(base).send({ ...shirt, variants: [{ ...shirt.variants[0], sku: 'taza-01' }] }).expect(409);
+      expect(dup.body.message).toContain('Taza Blanca');
+
+      const created = (await a.agent.post(base).send(shirt).expect(201)).body;
+      expect(created.tags).toEqual(['Verano', 'algodón']);
+      expect(created.variants.map((v: { title: string }) => v.title)).toEqual(['Rojo / S', 'Rojo / M', 'Azul / S']);
+      expect(created.variants[1]).toMatchObject({ optionValues: ['Rojo', 'M'], price: '22.90' });
+
+      // Lista: rango de precios, búsqueda por SKU, filtro por estado.
+      const list = (await a.agent.get(base).expect(200)).body;
+      expect(list.total).toBe(2);
+      expect(list.items.find((p: { id: number }) => p.id === created.id)).toMatchObject({
+        variantsCount: 3,
+        minPrice: '20',
+        maxPrice: '22.90',
+        status: 'DRAFT',
+      });
+      expect((await a.agent.get(`${base}?q=pol-a`).expect(200)).body.items.map((p: { id: number }) => p.id)).toEqual([created.id]);
+      expect((await a.agent.get(`${base}?status=ACTIVE`).expect(200)).body.items.map((p: { id: number }) => p.id)).toEqual([simple.id]);
+      expect((await a.agent.get(`${base}?status=raro`).expect(200)).body.total).toBe(2); // filtro inválido = sin filtro
+
+      // Editar: se conserva la variante con id (mismo ítem), se quita otra, se agrega una y se intercambian SKUs.
+      const [rs, rm] = created.variants;
+      const edited = (
+        await a.agent
+          .put(`${base}/${created.id}`)
+          .send({
+            ...shirt,
+            title: 'Polera Premium',
+            version: created.version,
+            options: [
+              { name: 'Color', values: ['Rojo', 'Azul', 'Negro'] },
+              { name: 'Talla', values: ['S', 'M'] },
+            ],
+            variants: [
+              { id: rs.id, optionValues: ['Rojo', 'S'], sku: 'POL-R-M', price: '25' },
+              { id: rm.id, optionValues: ['Rojo', 'M'], sku: 'POL-R-S', price: '25' },
+              { optionValues: ['Negro', 'M'], sku: 'POL-N-M', price: '30' },
+            ],
+          })
+          .expect(200)
+      ).body;
+      expect(edited).toMatchObject({ title: 'Polera Premium', handle: 'polera-basica', version: 2 });
+      expect(edited.variants.map((v: { id: number; sku: string }) => [v.id, v.sku])).toEqual([
+        [rs.id, 'POL-R-M'],
+        [rm.id, 'POL-R-S'],
+        [expect.any(Number), 'POL-N-M'],
+      ]);
+      // El SKU de la variante quitada queda libre.
+      await a.agent
+        .put(`${base}/${simple.id}`)
+        .send({ title: 'Taza Blanca', variants: [{ id: simple.variants[0].id, optionValues: [], sku: 'POL-A-S', price: '12.5' }] })
+        .expect(200);
+
+      // Edición con una versión vieja: 409 (otra persona guardó antes).
+      await a.agent.put(`${base}/${created.id}`).send({ ...shirt, version: created.version }).expect(409);
+      // Una variante de otro producto no se puede "adoptar".
+      await a.agent
+        .put(`${base}/${created.id}`)
+        .send({ title: 'X', variants: [{ id: simple.variants[0].id, optionValues: [], price: '1' }] })
+        .expect(400);
+
+      // Otra empresa no lo ve; baja lógica.
+      await b.agent.get(`/tenants/${b.slug}/products/${created.id}`).expect(404);
+      await a.agent.delete(`${base}/${created.id}`).expect(204);
+      await a.agent.get(`${base}/${created.id}`).expect(404);
+      expect((await a.agent.get(base).expect(200)).body.total).toBe(1);
+      // Su handle y sus SKU quedan libres (POL-A-S ahora es de la taza: sigue ocupado).
+      await a.agent.post(base).send(shirt).expect(409);
+      const again = (await a.agent.post(base).send({ ...shirt, variants: shirt.variants.slice(0, 2) }).expect(201)).body;
+      expect(again.handle).toBe('polera-basica');
+    });
   });
 
   describe('usuarios e invitaciones', () => {

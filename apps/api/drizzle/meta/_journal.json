@@ -36,6 +36,20 @@
       "when": 1795735503378,
       "tag": "0004_inventory_locations",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795743795243,
+      "tag": "0005_catalog_products",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795745852778,
+      "tag": "0006_variant_pricing_policy",
+      "breakpoints": true
     }
   ]
 }

@@ -69,6 +69,7 @@ export class IdentityRepository {
         tenantId: tenants.id,
         slug: tenants.slug,
         companyName: tenants.companyName,
+        reportingCurrency: tenants.reportingCurrency,
         role: roles.name,
         permissions: roles.permissions,
         allShopsAccess: tenantUsers.allShopsAccess,
