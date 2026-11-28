@@ -13,6 +13,7 @@ import {
 } from '@erp/contracts';
 import type { Tx } from '../../../shared/database/database.module.js';
 import type { TenantContext } from '../../../shared/http/request-context.js';
+import { mediaUrl } from '../../catalog/media/media.service.js';
 import { StockRepository } from './stock.repository.js';
 
 const variantTitle = (title: string) => (title === DEFAULT_VARIANT_TITLE ? null : title);
@@ -24,8 +25,15 @@ export class StockService {
   async list(tenant: TenantContext, query: InventoryQuery): Promise<Paginated<InventoryRow>> {
     if (query.locationId) await this.activeLocation(tenant, query.locationId);
     const { items, total } = await this.repo.listPage(tenant.tenantId, query);
+    // Todas las bodegas: además del total, cuánto hay en cada una (para saber dónde está el stock).
+    const levels = query.locationId ? null : await this.levelsByItem(tenant.tenantId, items.map((r) => r.inventoryItemId));
     return paginated(
-      items.map((row) => ({ ...row, variantTitle: variantTitle(row.variantTitle) })),
+      items.map(({ featuredMediaId, ...row }) => ({
+        ...row,
+        variantTitle: variantTitle(row.variantTitle),
+        imageUrl: featuredMediaId ? mediaUrl(tenant.slug, featuredMediaId) : null,
+        levels: levels?.get(row.inventoryItemId) ?? [],
+      })),
       total,
       query,
     );

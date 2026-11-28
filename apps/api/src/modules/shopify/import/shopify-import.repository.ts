@@ -148,7 +148,7 @@ export class ShopifyImportRepository {
   async upsertShopLocation(
     values: Pick<
       typeof shopLocations.$inferInsert,
-      'tenantId' | 'shopId' | 'locationId' | 'shopifyGid' | 'shopifyLegacyId' | 'shopifyName' | 'isActive' | 'fulfillsOnlineOrders' | 'hasActiveInventory'
+      'tenantId' | 'shopId' | 'locationId' | 'shopifyGid' | 'shopifyLegacyId' | 'shopifyName' | 'isActive' | 'fulfillsOnlineOrders' | 'hasActiveInventory' | 'fulfillmentServiceHandle'
     >,
     tx: Tx,
   ): Promise<void> {

@@ -1,8 +1,12 @@
 'use client';
 
-import { type AdjustmentReason, type InventoryRow, MANUAL_ADJUSTMENT_REASONS, type Paginated } from '@erp/contracts';
+import { type AdjustmentReason, type InventoryRow, type LocationOptionResponse, MANUAL_ADJUSTMENT_REASONS, type Paginated } from '@erp/contracts';
+import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
 import Alert from '@mui/material/Alert';
+import Avatar from '@mui/material/Avatar';
+import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -15,6 +19,7 @@ import DataTable, { type Column } from '@/components/data-table/DataTable';
 import TableSearch from '@/components/data-table/TableSearch';
 import TextLink from '@/components/ui/TextLink';
 import { ApiError } from '@/lib/http';
+import { mediaSrc } from '@/features/products/api/media.api';
 import { adjustInventory } from '../api/inventory.api';
 import { parseAvailableInput, REASON_LABELS } from '../inventory-labels';
 import { useUiStore } from '@/stores/UiStoreProvider';
@@ -27,6 +32,8 @@ type Props = {
   searchQuery?: string;
   /** Bodega elegida; null = todas (solo lectura). */
   locationId: number | null;
+  /** Bodegas activas (para nombrar dónde está el stock en la vista de todas). */
+  locations: LocationOptionResponse[];
   canWrite: boolean;
 };
 
@@ -34,7 +41,7 @@ type Props = {
 type Edit = { text: string; original: number; row: InventoryRow };
 
 /** Stock por variante. Con una bodega elegida, "Disponible" se edita en la tabla y se guarda en lote. */
-export default function StockTable({ tenant, shopPath, page, searchQuery, locationId, canWrite }: Props) {
+export default function StockTable({ tenant, shopPath, page, searchQuery, locationId, locations, canWrite }: Props) {
   const router = useRouter();
   const [edits, setEdits] = useState<Record<number, Edit>>({});
   const [reason, setReason] = useState<Exclude<AdjustmentReason, 'initial'>>('correction');
@@ -98,16 +105,35 @@ export default function StockTable({ tenant, shopPath, page, searchQuery, locati
       key: 'product',
       header: 'Producto',
       minWidth: 240,
+      // Como en Shopify: miniatura, producto y la variante como etiqueta.
       render: (r) => (
-        <>
-          <TextLink href={`${shopPath}/products/${r.productId}`} variant="body2" sx={{ fontWeight: 500, display: 'block' }}>
-            {r.productTitle}
-          </TextLink>
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            {[r.variantTitle, r.sku ?? 'Sin SKU'].filter(Boolean).join(' · ')}
-          </Typography>
-        </>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+          <Avatar
+            variant="rounded"
+            src={r.imageUrl ? mediaSrc(r.imageUrl) : undefined}
+            alt=""
+            sx={{ width: 40, height: 40, bgcolor: 'action.hover', color: 'text.disabled', border: 1, borderColor: 'divider', '& img': { objectFit: 'contain' } }}
+          >
+            <ImageOutlinedIcon fontSize="small" />
+          </Avatar>
+          <Box sx={{ minWidth: 0 }}>
+            <TextLink href={`${shopPath}/products/${r.productId}`} variant="body2" sx={{ fontWeight: 500, display: 'block' }}>
+              {r.productTitle}
+            </TextLink>
+            {r.variantTitle && <Chip size="small" label={r.variantTitle} sx={{ mt: 0.5, height: 22, borderRadius: 1.5 }} />}
+          </Box>
+        </Stack>
       ),
+    },
+    {
+      key: 'sku',
+      header: 'SKU',
+      render: (r) =>
+        r.sku ?? (
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+            Sin SKU
+          </Typography>
+        ),
     },
     {
       key: 'unavailable',
@@ -146,14 +172,55 @@ export default function StockTable({ tenant, shopPath, page, searchQuery, locati
         );
       },
     },
-    { key: 'onHand', header: <Tooltip title="Unidades físicas en bodega"><span>En mano</span></Tooltip>, align: 'right', render: (r) => r.onHand },
+    {
+      key: 'onHand',
+      header: (
+        <Tooltip title="Unidades físicas en bodega (disponible + comprometido + no disponible)">
+          <span>En existencias</span>
+        </Tooltip>
+      ),
+      align: 'right',
+      render: (r) => r.onHand,
+    },
+    {
+      key: 'incoming',
+      header: (
+        <Tooltip title="En camino a la bodega (órdenes de compra y transferencias). No suma a las existencias.">
+          <span>Por recibir</span>
+        </Tooltip>
+      ),
+      align: 'right',
+      render: (r) => r.incoming,
+    },
+    {
+      key: 'where',
+      header: 'Dónde está',
+      minWidth: 200,
+      // Solo en "Todas las bodegas": el total se reparte entre bodegas (al ver una, sobra).
+      hidden: locationId !== null,
+      render: (r) => {
+        const withStock = r.levels.filter((l) => l.available !== 0);
+        if (withStock.length === 0) {
+          return (
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+              Sin stock en ninguna bodega
+            </Typography>
+          );
+        }
+        return withStock.map((l) => (
+          <Typography key={l.locationId} variant="body2" sx={{ whiteSpace: 'nowrap' }}>
+            {locations.find((x) => x.id === l.locationId)?.name ?? 'Bodega inactiva'}: <strong>{l.available}</strong>
+          </Typography>
+        ));
+      },
+    },
   ];
 
   return (
     <Stack spacing={2}>
       {locationId === null && (
         <Alert severity="info" variant="outlined">
-          Estás viendo la suma de todas las bodegas. Elige una bodega para ajustar su stock.
+          Estás viendo la suma de todas las bodegas (en “Dónde está”, cuánto hay en cada una). Elige una bodega arriba para ajustar su stock.
         </Alert>
       )}
       {editable && (

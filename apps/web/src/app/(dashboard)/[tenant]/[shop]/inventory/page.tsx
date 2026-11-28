@@ -56,7 +56,7 @@ async function InventorySection({ params, searchParams }: Pick<Props, 'params' |
     );
   }
 
-  const location = resolveLocation(search, locations, 'first');
+  const location = resolveLocation(search, locations);
   const query = inventoryQuerySchema.parse({ ...readTableQuery(search), locationId: location.locationId });
   const page = await getInventoryPage(tenant, query);
 
@@ -69,6 +69,7 @@ async function InventorySection({ params, searchParams }: Pick<Props, 'params' |
         page={page}
         searchQuery={query.q}
         locationId={location.locationId ?? null}
+        locations={locations}
       canWrite={can(membership, 'inventory:write')}
     />
   );

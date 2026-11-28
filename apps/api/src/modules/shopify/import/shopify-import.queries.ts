@@ -2,7 +2,8 @@
 
 export const LOCATIONS_QUERY = /* GraphQL */ `
   query ImportLocations($after: String) {
-    locations(first: 50, after: $after) {
+    # includeLegacy: también las ubicaciones de apps de logística (servicios de fulfillment), como las muestra Shopify.
+    locations(first: 50, after: $after, includeLegacy: true) {
       pageInfo { hasNextPage endCursor }
       nodes {
         id
@@ -11,6 +12,8 @@ export const LOCATIONS_QUERY = /* GraphQL */ `
         isActive
         fulfillsOnlineOrders
         hasActiveInventory
+        isFulfillmentService
+        fulfillmentService { handle }
         address { address1 address2 city province provinceCode countryCode zip phone }
       }
     }
@@ -103,6 +106,9 @@ export type ShopifyLocationNode = {
   isActive: boolean;
   fulfillsOnlineOrders: boolean;
   hasActiveInventory: boolean;
+  /** Ubicación de una app de logística (ej. "Snow City Warehouse"): su stock lo maneja la app. */
+  isFulfillmentService: boolean;
+  fulfillmentService: { handle: string } | null;
   address: {
     address1: string | null;
     address2: string | null;

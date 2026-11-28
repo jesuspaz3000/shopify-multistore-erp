@@ -38,9 +38,13 @@ export class StockRepository {
   /** Stock por variante en una bodega (`locationId`) o sumado en todas (undefined). */
   async listPage(tenantId: number, query: InventoryQuery, tx: Executor = this.db) {
     const where = this.stockFilter(tenantId, query.q);
+    // Todas las bodegas = solo las vigentes (como la lista de Productos: los números coinciden).
     const levelJoin = query.locationId
       ? and(eq(inventoryLevels.inventoryItemId, inventoryItems.id), eq(inventoryLevels.locationId, query.locationId))
-      : eq(inventoryLevels.inventoryItemId, inventoryItems.id);
+      : and(
+          eq(inventoryLevels.inventoryItemId, inventoryItems.id),
+          sql`exists (select 1 from locations l where l.id = ${inventoryLevels.locationId} and l.deleted_at is null)`,
+        );
     const [items, [{ total: rows }]] = await Promise.all([
       tx
         .select({
@@ -50,6 +54,11 @@ export class StockRepository {
           productTitle: products.title,
           variantTitle: productVariants.title,
           sku: productVariants.sku,
+          // Imagen principal del producto (columnas calificadas a mano: va dentro de una subconsulta).
+          featuredMediaId: sql<number | null>`(
+            select pm.media_id from product_media pm
+            where pm.product_id = ${products.id} order by pm.position limit 1
+          )::bigint`.mapWith(Number),
           available: total(inventoryLevels.available),
           committed: total(inventoryLevels.committed),
           unavailable: sql<number>`coalesce(sum(${inventoryLevels.reserved} + ${inventoryLevels.damaged} + ${inventoryLevels.safetyStock} + ${inventoryLevels.qualityControl}), 0)::int`,

@@ -118,7 +118,8 @@ export class ShopifyImportService {
           const values = {
             code,
             name: node.name.slice(0, 255),
-            type: 'warehouse',
+            // Ubicación de una app de logística = bodega de un tercero (3PL).
+            type: node.isFulfillmentService ? '3pl' : 'warehouse',
             address1: a.address1?.slice(0, 255) ?? null,
             address2: a.address2?.slice(0, 255) ?? null,
             city: a.city?.slice(0, 100) ?? null,
@@ -155,6 +156,7 @@ export class ShopifyImportService {
             isActive: node.isActive,
             fulfillsOnlineOrders: node.fulfillsOnlineOrders,
             hasActiveInventory: node.hasActiveInventory,
+            fulfillmentServiceHandle: node.fulfillmentService?.handle.slice(0, 100) ?? null,
           },
           tx,
         );

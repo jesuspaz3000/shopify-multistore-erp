@@ -74,6 +74,8 @@ export type InventoryRow = {
   productTitle: string;
   /** null = producto sin variantes ("Default Title"). */
   variantTitle: string | null;
+  /** Imagen principal del producto (url relativa a la API) o null. */
+  imageUrl: string | null;
   sku: string | null;
   /** Disponible para vender. */
   available: number;
@@ -85,6 +87,8 @@ export type InventoryRow = {
   onHand: number;
   /** En camino (no suma al físico). */
   incoming: number;
+  /** Vista "Todas las bodegas": disponible en cada bodega con stock registrado (vacío al ver una bodega). */
+  levels: { locationId: number; available: number }[];
 };
 
 export type AdjustInventoryResponse = {

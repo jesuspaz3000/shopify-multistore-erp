@@ -34,7 +34,7 @@ async function AdjustmentsSection({ params, searchParams }: Pick<Props, 'params'
   }
 
   const locations = await getLocationOptions(tenant);
-  const location = resolveLocation(search, locations, 'all');
+  const location = resolveLocation(search, locations);
   const query = adjustmentsQuerySchema.parse({ ...readTableQuery(search), locationId: location.locationId });
   const page = await getAdjustmentsPage(tenant, query);
 

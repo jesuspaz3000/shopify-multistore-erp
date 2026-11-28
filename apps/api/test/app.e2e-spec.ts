@@ -382,6 +382,8 @@ describe('API (e2e)', () => {
       const levels: Record<string, Record<string, number>> = {
         [gid('Location', 1)]: { [gid('InventoryItem', 1)]: 5, [gid('InventoryItem', 2)]: -2 },
         [gid('Location', 2)]: { [gid('InventoryItem', 3)]: 7 },
+        // Ubicación de una app de logística (3PL): también tiene stock de la taza.
+        [gid('Location', 3)]: { [gid('InventoryItem', 3)]: 4 },
       };
       const shopifyLocation = (n: number, name: string) => ({
         id: gid('Location', n),
@@ -390,6 +392,8 @@ describe('API (e2e)', () => {
         isActive: true,
         fulfillsOnlineOrders: true,
         hasActiveInventory: true,
+        isFulfillmentService: false,
+        fulfillmentService: null as { handle: string } | null,
         address: { address1: 'Av. Siempre Viva 123', address2: null, city: 'Lima', province: 'Lima', provinceCode: 'LIM', countryCode: 'PE', zip: '15001', phone: null },
       });
       const page = <T,>(nodes: T[]) => ({ pageInfo: { hasNextPage: false, endCursor: null }, nodes });
@@ -408,7 +412,11 @@ describe('API (e2e)', () => {
           return json({ access_token: 'shpat_import', scope: 'write_products,write_inventory,read_locations,write_files,write_publications', expires_in: 86399 });
         }
         const { query, variables } = JSON.parse(init?.body as string) as { query: string; variables: { id?: string } };
-        if (query.includes('query ImportLocations')) return json({ data: { locations: page([shopifyLocation(1, 'Almacén Central'), shopifyLocation(2, 'bodega lima')]) } });
+        if (query.includes('query ImportLocations')) return json({ data: { locations: page([
+                shopifyLocation(1, 'Almacén Central'),
+                shopifyLocation(2, 'bodega lima'),
+                { ...shopifyLocation(3, 'Snow City Warehouse'), isFulfillmentService: true, fulfillmentService: { handle: 'snow-city-warehouse' } },
+              ]) } });
         if (query.includes('query ImportLevels')) {
           const byItem = levels[variables.id!] ?? {};
           return json({
@@ -455,15 +463,17 @@ describe('API (e2e)', () => {
 
         const first = (await a.agent.post(importUrl).expect(200)).body;
         expect(first).toEqual({
-          locations: { total: 2, created: 1, linked: 1 },
+          locations: { total: 3, created: 2, linked: 1 },
           products: { total: 2, created: 2, updated: 0, unchanged: 0, failed: 0 },
-          stock: { adjusted: 2 }, // -2 en Shopify queda en 0 en el ERP (sin movimiento)
+          stock: { adjusted: 3 }, // -2 en Shopify queda en 0 en el ERP (sin movimiento)
           warnings: [{ product: 'Taza', message: expect.stringMatching(/categoría/) }],
         });
         expect(imageDownloads).toBe(1);
 
         const locations = (await a.agent.get(`${t}/locations`).expect(200)).body.items as { id: number; code: string; name: string; city: string }[];
-        expect(locations.map((l) => l.name).sort()).toEqual(['Almacén Central', 'Bodega Lima']);
+        expect(locations.map((l) => l.name).sort()).toEqual(['Almacén Central', 'Bodega Lima', 'Snow City Warehouse']);
+        // La de la app de logística entra como bodega de un tercero (3PL).
+        expect(locations.find((l) => l.name === 'Snow City Warehouse')).toMatchObject({ type: '3pl' });
         const central = locations.find((l) => l.name === 'Almacén Central')!;
         expect(central).toMatchObject({ code: 'ALMACEN-CENTRAL', city: 'Lima' });
 
@@ -496,8 +506,26 @@ describe('API (e2e)', () => {
           ['IMP-POL-M', '775002', 0],
         ]);
         expect(detail.variants[0].levels).toEqual([{ locationId: central.id, available: 5 }]);
+        // Inventario sin bodega elegida = todas (mismo total que la ficha), con el reparto por bodega.
+        const stockRows = (await a.agent.get(`${t}/inventory?q=IMP-POL-S`).expect(200)).body.items;
+        expect(stockRows).toEqual([
+          expect.objectContaining({
+            sku: 'IMP-POL-S',
+            variantTitle: 'S',
+            imageUrl: detail.media[0].url, // imagen principal del producto (como en Shopify)
+            available: 5,
+            levels: [{ locationId: central.id, available: 5 }],
+          }),
+        ]);
+        expect((await a.agent.get(`${t}/inventory?q=IMP-POL-S&locationId=${lima.id}`).expect(200)).body.items[0]).toMatchObject({ available: 0, levels: [] });
         const tazaDetail = (await a.agent.get(`${t}/products/${list.items.find((p: { title: string }) => p.title === 'Taza').id}`).expect(200)).body;
-        expect(tazaDetail).toMatchObject({ status: 'DRAFT', options: [], variants: [{ available: 7, levels: [{ locationId: lima.id, available: 7 }] }] });
+        const snowCity = locations.find((l) => l.name === 'Snow City Warehouse')!;
+        expect(tazaDetail).toMatchObject({
+          status: 'DRAFT',
+          options: [],
+          // 7 en Bodega Lima + 4 en la bodega de la app de logística.
+          variants: [{ available: 11, levels: expect.arrayContaining([{ locationId: lima.id, available: 7 }, { locationId: snowCity.id, available: 4 }]) }],
+        });
 
         // Reimportar sin cambios: no duplica ni vuelve a descargar imágenes.
         const second = (await a.agent.post(importUrl).expect(200)).body;
