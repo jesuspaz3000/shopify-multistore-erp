@@ -23,7 +23,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "superadmin:create": "nest build && node --env-file-if-exists=../../.env dist/scripts/create-superadmin.js",
-    "tenant:create": "nest build && node --env-file-if-exists=../../.env dist/scripts/create-tenant.js"
+    "tenant:create": "nest build && node --env-file-if-exists=../../.env dist/scripts/create-tenant.js",
+    "taxonomy:import": "nest build && node --env-file-if-exists=../../.env dist/scripts/import-taxonomy.js"
   },
   "dependencies": {
     "@erp/contracts": "*",

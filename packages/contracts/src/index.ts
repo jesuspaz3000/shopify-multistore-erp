@@ -12,3 +12,4 @@ export * from './locations/index.js';
 export * from './members/index.js';
 export * from './roles/index.js';
 export * from './shops/index.js';
+export * from './sync/index.js';

@@ -223,13 +223,11 @@ export default function UsersManager({
               Personas con acceso a esta empresa. Entran por invitación.
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-            <TableSearch placeholder="Buscar por nombre o email…" />
-            <Button variant="contained" startIcon={<PersonAddIcon />} onClick={() => setInviting(true)} sx={{ flexShrink: 0 }}>
-              Invitar usuario
-            </Button>
-          </Stack>
+          <Button variant="contained" startIcon={<PersonAddIcon />} onClick={() => setInviting(true)} sx={{ flexShrink: 0 }}>
+            Invitar usuario
+          </Button>
         </Stack>
+        <TableSearch placeholder="Buscar por nombre o email…" />
         <DataTable
           columns={memberColumns}
           data={members}
@@ -241,12 +239,10 @@ export default function UsersManager({
 
       {/* ---------- Invitaciones pendientes ---------- */}
       <Stack spacing={2}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between', gap: 2 }}>
-          <Typography variant="h6" component="h2">
-            Invitaciones pendientes
-          </Typography>
-          <TableSearch placeholder="Buscar por email…" paramPrefix={INVITATIONS_PREFIX} />
-        </Stack>
+        <Typography variant="h6" component="h2">
+          Invitaciones pendientes
+        </Typography>
+        <TableSearch placeholder="Buscar por email…" paramPrefix={INVITATIONS_PREFIX} />
         <DataTable
           columns={invitationColumns}
           data={invitations}

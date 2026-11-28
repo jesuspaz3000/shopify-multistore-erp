@@ -12,6 +12,8 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
   // No revelar el stack tecnológico (X-Powered-By: Next.js).
   poweredByHeader: false,
+  // El proxy de /api corta a los 30 s por defecto; importar desde Shopify puede tardar más.
+  experimental: { proxyTimeout: 600_000 },
 
   // El navegador llama a /api/* (mismo origen: cookies httpOnly sin CORS)
   // y Next lo reenvía a la API NestJS.

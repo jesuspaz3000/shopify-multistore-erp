@@ -1,6 +1,7 @@
 'use client';
 
-import type { Paginated, ShopResponse } from '@erp/contracts';
+import type { Paginated, ShopifyImportResponse, ShopResponse } from '@erp/contracts';
+import CloudDownloadIcon from '@mui/icons-material/CloudDownloadOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import LinkIcon from '@mui/icons-material/Link';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
@@ -23,9 +24,10 @@ import TableSearch from '@/components/data-table/TableSearch';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { ApiError } from '@/lib/http';
 import { useUiStore } from '@/stores/UiStoreProvider';
-import { deleteShop, disconnectShopify, refreshShopify } from '../api/shops.api';
+import { deleteShop, disconnectShopify, importFromShopify, refreshShopify } from '../api/shops.api';
 import { countryLabel, STATUS_LABELS } from '../shop-options';
 import ConnectShopifyDialog from './ConnectShopifyDialog';
+import ImportResultDialog from './ImportResultDialog';
 
 type Props = { tenant: string; page: Paginated<ShopResponse>; searchQuery?: string; canManage: boolean };
 
@@ -42,6 +44,8 @@ export default function ShopsManager({ tenant, page, searchQuery, canManage }: P
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState<number | null>(null);
+  const [imported, setImported] = useState<{ shopName: string; result: ShopifyImportResponse } | null>(null);
   // Aviso global (AppShell): sobrevive al router.refresh() que vuelve a montar la página.
   const notify = useUiStore((s) => s.notify);
 
@@ -74,6 +78,19 @@ export default function ShopsManager({ tenant, page, searchQuery, canManage }: P
       notify(error instanceof ApiError ? error.message : 'No se pudo actualizar desde Shopify', 'error');
     } finally {
       setRefreshing(null);
+    }
+  };
+
+  const runImport = async (shop: ShopResponse) => {
+    setImporting(shop.id);
+    try {
+      const result = await importFromShopify(tenant, shop.id);
+      setImported({ shopName: shop.name, result });
+      router.refresh();
+    } catch (error) {
+      notify(error instanceof ApiError ? error.message : 'No se pudo importar desde Shopify', 'error');
+    } finally {
+      setImporting(null);
     }
   };
 
@@ -126,6 +143,19 @@ export default function ShopsManager({ tenant, page, searchQuery, canManage }: P
       render: (shop) =>
         shop.status === 'installed' ? (
           <>
+            <Tooltip title="Importar productos, ubicaciones y stock desde Shopify">
+              <span>
+                <IconButton
+                  size="small"
+                  color="primary"
+                  disabled={importing !== null}
+                  onClick={() => void runImport(shop)}
+                  aria-label={`Importar productos de ${shop.name} desde Shopify`}
+                >
+                  {importing === shop.id ? <CircularProgress size={18} /> : <CloudDownloadIcon fontSize="small" />}
+                </IconButton>
+              </span>
+            </Tooltip>
             <Tooltip title="Actualizar desde Shopify">
               <span>
                 <IconButton
@@ -175,15 +205,14 @@ export default function ShopsManager({ tenant, page, searchQuery, canManage }: P
             Las tiendas Shopify conectadas a este ERP. Su nombre, moneda y zona horaria vienen de Shopify.
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-          {!noShopsAtAll && <TableSearch placeholder="Buscar tienda…" />}
-          {canManage && (
-            <Button variant="contained" startIcon={<LinkIcon />} onClick={() => setConnecting('new')} sx={{ flexShrink: 0 }}>
-              Conectar tienda de Shopify
-            </Button>
-          )}
-        </Stack>
+        {canManage && (
+          <Button variant="contained" startIcon={<LinkIcon />} onClick={() => setConnecting('new')} sx={{ flexShrink: 0 }}>
+            Conectar tienda de Shopify
+          </Button>
+        )}
       </Stack>
+
+      {!noShopsAtAll && <TableSearch placeholder="Buscar tienda…" />}
 
       {noShopsAtAll ? (
         <Paper variant="outlined" sx={{ p: 5, textAlign: 'center', borderStyle: 'dashed' }}>
@@ -214,6 +243,10 @@ export default function ShopsManager({ tenant, page, searchQuery, canManage }: P
             else afterChange(`"${saved.name}" conectada con Shopify`);
           }}
         />
+      )}
+
+      {imported && (
+        <ImportResultDialog tenant={tenant} shopName={imported.shopName} result={imported.result} onClose={() => setImported(null)} />
       )}
 
       <ConfirmDialog

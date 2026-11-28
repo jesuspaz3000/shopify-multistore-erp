@@ -27,6 +27,16 @@ describe('dominio y permisos de Shopify', () => {
 describe('ShopifyAdminClient', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it('tienda inexistente (404) y errores como texto ({ errors: "..." }) dan un ShopifyError, no un fallo interno', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(404, { errors: 'Not Found' })));
+    await expect(client().graphql('t.myshopify.com', 'tok', '{ shop { name } }')).rejects.toMatchObject({ code: 'SHOP_NOT_FOUND' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(402, { errors: 'Unavailable Shop' })));
+    await expect(client().graphql('t.myshopify.com', 'tok', '{ shop { name } }')).rejects.toMatchObject({
+      code: 'GRAPHQL',
+      message: 'Unavailable Shop',
+    });
+  });
+
   it('pide el token con client credentials (form-urlencoded) y lee scopes y vencimiento', async () => {
     const fetchMock = vi.fn().mockResolvedValue(json(200, { access_token: 'tok', scope: 'read_products,write_products', expires_in: 86399 }));
     vi.stubGlobal('fetch', fetchMock);

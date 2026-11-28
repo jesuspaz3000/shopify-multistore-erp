@@ -10,6 +10,8 @@ import { AppModule } from './../src/app.module.js';
 import { auditLogs } from './../src/modules/audit/audit.schema.js';
 import { shops } from './../src/modules/shops/shops.schema.js';
 import { ShopifyConnectionService } from './../src/modules/shopify/index.js';
+import { parseTaxonomy } from './../src/modules/catalog/taxonomy/taxonomy-parser.js';
+import { TaxonomyRepository } from './../src/modules/catalog/taxonomy/taxonomy.repository.js';
 import { tenants, tenantUsers, users } from './../src/modules/identity/identity.schema.js';
 import { DB, type Database } from './../src/shared/database/database.module.js';
 import { AUTH_LIMITS } from './../src/shared/http/rate-limit.js';
@@ -31,6 +33,22 @@ describe('API (e2e)', () => {
     app.use(cookieParser());
     app.useGlobalPipes(new StandardSchemaValidationPipe());
     await app.init();
+
+    // Rama de snowboard de la taxonomía real de Shopify (una base nueva puede no tener cargada la
+    // taxonomía). Solo se insertan las que faltan: no se pisa una taxonomía completa ya cargada.
+    const { entries } = parseTaxonomy(
+      [
+        '# Shopify Product Taxonomy - Categories: 2026-11',
+        'gid://shopify/TaxonomyCategory/sg : Equipamiento deportivo',
+        'gid://shopify/TaxonomyCategory/sg-4 : Equipamiento deportivo > Actividades al aire libre',
+        'gid://shopify/TaxonomyCategory/sg-4-17 : Equipamiento deportivo > Actividades al aire libre > Actividades y deportes de invierno',
+        'gid://shopify/TaxonomyCategory/sg-4-17-2 : Equipamiento deportivo > Actividades al aire libre > Actividades y deportes de invierno > Esquí y snowboard',
+        'gid://shopify/TaxonomyCategory/sg-4-17-2-17 : Equipamiento deportivo > Actividades al aire libre > Actividades y deportes de invierno > Esquí y snowboard > Tablas de snowboard',
+      ].join('\n'),
+    );
+    const taxonomy = app.get(TaxonomyRepository);
+    const existing = await taxonomy.findByIds(entries.map((e) => e.id));
+    if (existing.size < entries.length) await taxonomy.upsertAll(entries.filter((e) => !existing.has(e.id)), '2026-11');
   });
 
   const createdEmails: string[] = [];
@@ -179,7 +197,7 @@ describe('API (e2e)', () => {
         const json = (status: number, body: unknown) =>
           new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
         if (url.endsWith('/admin/oauth/access_token')) {
-          const form = new URLSearchParams(String(init?.body));
+          const form = new URLSearchParams(init?.body as string);
           if (form.get('client_secret') !== 'shpss_correcto') return json(401, { error: 'invalid_client' });
           return json(200, { access_token: `shpat_token_${++tokenCounter}`, scope: grantedScopes, expires_in: 86399 });
         }
@@ -288,6 +306,232 @@ describe('API (e2e)', () => {
         // Desconectada, ya se puede eliminar.
         await a.agent.delete(`${base}/${shop.id}/shopify`).expect(200);
         await a.agent.delete(`${base}/${shop.id}`).expect(204);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('shopify: importar trae ubicaciones, productos, imágenes y stock; reimportar no duplica y aplica los cambios', async () => {
+      const a = await registerCompany('Empresa Importar E2E');
+      const b = await registerCompany('Empresa Importar B E2E');
+      const domain = `imp-${Date.now()}.myshopify.com`;
+      const gid = (type: string, n: number) => `gid://shopify/${type}/${n}`;
+      // PNG mínimo (firma + IHDR 2x2): basta para que el ERP lo reconozca como imagen.
+      const png = Buffer.alloc(40);
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png);
+      png.writeUInt32BE(13, 8);
+      png.write('IHDR', 12, 'latin1');
+      png.writeUInt32BE(2, 16);
+      png.writeUInt32BE(2, 20);
+
+      const item = (n: number, tracked = true) => ({
+        id: gid('InventoryItem', n),
+        tracked,
+        requiresShipping: true,
+        unitCost: { amount: '10.0' },
+        countryCodeOfOrigin: null,
+        harmonizedSystemCode: null,
+        measurement: { weight: { value: 0.3, unit: 'KILOGRAMS' } },
+      });
+      const variant = (n: number, title: string, options: { name: string; value: string }[], sku: string) => ({
+        id: gid('ProductVariant', n),
+        title,
+        sku,
+        price: '49.90',
+        compareAtPrice: null,
+        inventoryPolicy: 'DENY',
+        taxable: true,
+        position: n,
+        barcodes: { nodes: [{ value: `77500${n}` }] },
+        selectedOptions: options,
+        inventoryItem: item(n),
+      });
+      // Estado de la tienda simulada (se modifica entre importaciones).
+      const polera = {
+        id: gid('Product', 1),
+        handle: 'polera-shopify',
+        title: 'Polera Shopify',
+        descriptionHtml: '<p>Algodón <script>alert(1)</script></p>',
+        vendor: 'Yisus',
+        productType: 'Ropa',
+        category: { id: 'gid://shopify/TaxonomyCategory/sg-4-17-2-17' } as { id: string } | null,
+        status: 'ACTIVE',
+        tags: ['verano'],
+        updatedAt: '2026-11-01T10:00:00Z',
+        seo: { title: null, description: null },
+        options: [{ name: 'Talla', position: 1, optionValues: [{ name: 'S', hasVariants: true }, { name: 'M', hasVariants: true }] }],
+        media: {
+          nodes: [{ id: gid('MediaImage', 1), alt: 'Frente', mediaContentType: 'IMAGE', image: { url: 'https://cdn.shopify.com/s/files/polera.png', width: 2, height: 2 } }],
+        },
+        variants: [variant(1, 'S', [{ name: 'Talla', value: 'S' }], 'IMP-POL-S'), variant(2, 'M', [{ name: 'Talla', value: 'M' }], 'IMP-POL-M')],
+      };
+      const taza = {
+        ...polera,
+        id: gid('Product', 2),
+        handle: 'taza',
+        // Categoría de una taxonomía más nueva que la cargada: se importa sin categoría (con aviso).
+        category: { id: 'gid://shopify/TaxonomyCategory/zz-1' },
+        title: 'Taza',
+        descriptionHtml: '',
+        status: 'DRAFT',
+        options: [{ name: 'Title', position: 1, optionValues: [{ name: 'Default Title', hasVariants: true }] }],
+        media: { nodes: [] },
+        variants: [variant(3, 'Default Title', [{ name: 'Title', value: 'Default Title' }], 'IMP-TAZA')],
+      };
+      const catalog = [polera, taza];
+      const levels: Record<string, Record<string, number>> = {
+        [gid('Location', 1)]: { [gid('InventoryItem', 1)]: 5, [gid('InventoryItem', 2)]: -2 },
+        [gid('Location', 2)]: { [gid('InventoryItem', 3)]: 7 },
+      };
+      const shopifyLocation = (n: number, name: string) => ({
+        id: gid('Location', n),
+        legacyResourceId: String(n),
+        name,
+        isActive: true,
+        fulfillsOnlineOrders: true,
+        hasActiveInventory: true,
+        address: { address1: 'Av. Siempre Viva 123', address2: null, city: 'Lima', province: 'Lima', provinceCode: 'LIM', countryCode: 'PE', zip: '15001', phone: null },
+      });
+      const page = <T,>(nodes: T[]) => ({ pageInfo: { hasNextPage: false, endCursor: null }, nodes });
+
+      const realFetch = globalThis.fetch;
+      let imageDownloads = 0;
+      vi.stubGlobal('fetch', async (input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        if (url.startsWith('https://cdn.shopify.com/')) {
+          imageDownloads++;
+          return new Response(png, { status: 200, headers: { 'Content-Type': 'image/png' } });
+        }
+        if (!url.includes('.myshopify.com')) return realFetch(input, init);
+        if (url.endsWith('/admin/oauth/access_token')) {
+          return json({ access_token: 'shpat_import', scope: 'write_products,write_inventory,read_locations,write_files,write_publications', expires_in: 86399 });
+        }
+        const { query, variables } = JSON.parse(init?.body as string) as { query: string; variables: { id?: string } };
+        if (query.includes('query ImportLocations')) return json({ data: { locations: page([shopifyLocation(1, 'Almacén Central'), shopifyLocation(2, 'bodega lima')]) } });
+        if (query.includes('query ImportLevels')) {
+          const byItem = levels[variables.id!] ?? {};
+          return json({
+            data: {
+              location: {
+                inventoryLevels: page(Object.entries(byItem).map(([id, quantity]) => ({ item: { id }, quantities: [{ name: 'available', quantity }] }))),
+              },
+            },
+          });
+        }
+        if (query.includes('query ImportProductIds')) return json({ data: { products: page(catalog.map(({ id, title, updatedAt, category }) => ({ id, title, updatedAt, category }))) } });
+        if (query.includes('query ImportProduct')) {
+          const found = catalog.find((p) => p.id === variables.id);
+          return json({ data: { product: found ? { ...found, variants: page(found.variants) } : null } });
+        }
+        return json({
+          data: {
+            shop: {
+              id: gid('Shop', 5),
+              name: 'Tienda Importar',
+              email: 'owner@example.com',
+              contactEmail: null,
+              currencyCode: 'PEN',
+              enabledPresentmentCurrencies: ['PEN'],
+              ianaTimezone: 'America/Lima',
+              myshopifyDomain: domain,
+              taxesIncluded: true,
+              primaryDomain: { host: domain },
+              plan: { publicDisplayName: 'Development' },
+              shopAddress: { countryCodeV2: 'PE' },
+              currencyFormats: { moneyFormat: 'S/ {{amount}}' },
+            },
+            currentAppInstallation: { accessScopes: [{ handle: 'write_products' }, { handle: 'write_inventory' }, { handle: 'read_locations' }, { handle: 'write_files' }, { handle: 'write_publications' }] },
+          },
+        });
+      });
+
+      try {
+        const t = `/tenants/${a.slug}`;
+        // Bodega del ERP con el mismo nombre que una ubicación de Shopify: se empareja (no se duplica).
+        const lima = (await a.agent.post(`${t}/locations`).send({ code: 'BOD-LIMA', name: 'Bodega Lima' }).expect(201)).body;
+        const shop = (await a.agent.post(`${t}/shops/connect`).send({ myshopifyDomain: domain, clientId: 'cid', clientSecret: 'shpss_x' }).expect(201)).body;
+        const importUrl = `${t}/shops/${shop.id}/shopify/import`;
+
+        const first = (await a.agent.post(importUrl).expect(200)).body;
+        expect(first).toEqual({
+          locations: { total: 2, created: 1, linked: 1 },
+          products: { total: 2, created: 2, updated: 0, unchanged: 0, failed: 0 },
+          stock: { adjusted: 2 }, // -2 en Shopify queda en 0 en el ERP (sin movimiento)
+          warnings: [{ product: 'Taza', message: expect.stringMatching(/categoría/) }],
+        });
+        expect(imageDownloads).toBe(1);
+
+        const locations = (await a.agent.get(`${t}/locations`).expect(200)).body.items as { id: number; code: string; name: string; city: string }[];
+        expect(locations.map((l) => l.name).sort()).toEqual(['Almacén Central', 'Bodega Lima']);
+        const central = locations.find((l) => l.name === 'Almacén Central')!;
+        expect(central).toMatchObject({ code: 'ALMACEN-CENTRAL', city: 'Lima' });
+
+        const list = (await a.agent.get(`${t}/products`).expect(200)).body;
+        expect(list.total).toBe(2);
+        // Cada producto dice en qué tienda está; filtrar por tienda trae solo los suyos.
+        expect(list.items.map((p: { shops: { name: string }[] }) => p.shops.map((s) => s.name))).toEqual([['Tienda Importar'], ['Tienda Importar']]);
+        const local = (await a.agent.post(`${t}/products`).send({ title: 'Solo en el ERP', variants: [{ optionValues: [], price: '1' }] }).expect(201)).body;
+        const all = (await a.agent.get(`${t}/products`).expect(200)).body;
+        expect(all.total).toBe(3);
+        expect(all.items.find((p: { id: number }) => p.id === local.id).shops).toEqual([]);
+        const inShop = (await a.agent.get(`${t}/products?shop=${shop.handle}&q=polera`).expect(200)).body;
+        expect(inShop.items.map((p: { title: string }) => p.title)).toEqual(['Polera Shopify']);
+        expect((await a.agent.get(`${t}/products?shop=${shop.handle}`).expect(200)).body.total).toBe(2);
+        await a.agent.get(`${t}/products?shop=no-existe`).expect(404);
+        await a.agent.delete(`${t}/products/${local.id}`).expect(204);
+        const poleraId = list.items.find((p: { title: string }) => p.title === 'Polera Shopify').id;
+        const detail = (await a.agent.get(`${t}/products/${poleraId}`).expect(200)).body;
+        expect(detail).toMatchObject({
+          handle: 'polera-shopify',
+          vendor: 'Yisus',
+          status: 'ACTIVE',
+          category: { id: 'gid://shopify/TaxonomyCategory/sg-4-17-2-17', name: 'Tablas de snowboard' },
+          options: [{ name: 'Talla', values: ['S', 'M'] }],
+          media: [{ alt: 'Frente', mimeType: 'image/png', filename: 'polera.png' }], // nombre del archivo en Shopify
+        });
+        expect(detail.description).not.toContain('script');
+        expect(detail.variants.map((v: { sku: string; barcode: string; available: number }) => [v.sku, v.barcode, v.available])).toEqual([
+          ['IMP-POL-S', '775001', 5],
+          ['IMP-POL-M', '775002', 0],
+        ]);
+        expect(detail.variants[0].levels).toEqual([{ locationId: central.id, available: 5 }]);
+        const tazaDetail = (await a.agent.get(`${t}/products/${list.items.find((p: { title: string }) => p.title === 'Taza').id}`).expect(200)).body;
+        expect(tazaDetail).toMatchObject({ status: 'DRAFT', options: [], variants: [{ available: 7, levels: [{ locationId: lima.id, available: 7 }] }] });
+
+        // Reimportar sin cambios: no duplica ni vuelve a descargar imágenes.
+        const second = (await a.agent.post(importUrl).expect(200)).body;
+        expect(second).toMatchObject({ locations: { created: 0 }, products: { created: 0, updated: 0, unchanged: 2 }, stock: { adjusted: 0 } });
+        expect((await a.agent.get(`${t}/products`).expect(200)).body.total).toBe(2);
+
+        // Cambios en Shopify: renombrar, quitar una variante y vender 2 unidades.
+        Object.assign(polera, {
+          title: 'Polera Pro',
+          updatedAt: '2026-11-02T10:00:00Z',
+          options: [{ name: 'Talla', position: 1, optionValues: [{ name: 'S', hasVariants: true }] }],
+          variants: [polera.variants[0]],
+        });
+        levels[gid('Location', 1)][gid('InventoryItem', 1)] = 3;
+        const third = (await a.agent.post(importUrl).expect(200)).body;
+        expect(third).toMatchObject({ products: { created: 0, updated: 1, unchanged: 1, failed: 0 }, stock: { adjusted: 1 } });
+        const changed = (await a.agent.get(`${t}/products/${poleraId}`).expect(200)).body;
+        expect(changed.title).toBe('Polera Pro');
+        expect(changed.variants).toHaveLength(1);
+        expect(changed.variants[0]).toMatchObject({ id: detail.variants[0].id, available: 3 }); // misma variante
+        expect(imageDownloads).toBe(1);
+
+        // El kardex registra el origen Shopify: inicial y luego la corrección.
+        const kardex = (await a.agent.get(`${t}/inventory/adjustments?inventoryItemId=${detail.variants[0].inventoryItemId}`).expect(200)).body;
+        expect(kardex.items.map((k: { reason: string; source: string; delta: number }) => [k.reason, k.source, k.delta])).toEqual([
+          ['correction', 'SHOPIFY', -2],
+          ['initial', 'SHOPIFY', 5],
+        ]);
+
+        // Otra empresa no puede importar la tienda de A.
+        await b.agent.post(`/tenants/${b.slug}/shops/${shop.id}/shopify/import`).expect(404);
+        // Desconectada no se importa.
+        await a.agent.delete(`${t}/shops/${shop.id}/shopify`).expect(200);
+        await a.agent.post(importUrl).expect(409);
       } finally {
         vi.unstubAllGlobals();
       }
@@ -455,6 +699,41 @@ describe('API (e2e)', () => {
       await adjust({ locationId: cusco.id, reason: 'received', changes: [{ inventoryItemId: s.inventoryItemId, delta: 1 }] }).expect(404);
     });
 
+    it('categorías: taxonomía de Shopify (navegar, buscar sin tildes) y categoría del producto', async () => {
+      // La rama de snowboard se asegura en beforeAll.
+      const a = await registerCompany('Empresa Categorías E2E');
+      const t = `/tenants/${a.slug}`;
+      const roots = (await a.agent.get(`${t}/taxonomy/categories`).expect(200)).body;
+      expect(roots).toContainEqual(expect.objectContaining({ id: 'gid://shopify/TaxonomyCategory/sg', name: 'Equipamiento deportivo', level: 0 }));
+      const children = (await a.agent.get(`${t}/taxonomy/categories?parentId=gid://shopify/TaxonomyCategory/sg-4-17`).expect(200)).body;
+      expect(children).toContainEqual(expect.objectContaining({ id: 'gid://shopify/TaxonomyCategory/sg-4-17-2', name: 'Esquí y snowboard', isLeaf: false }));
+      // Sin tildes ni mayúsculas; lo que tiene las palabras en su propio nombre va primero.
+      const found = (await a.agent.get(`${t}/taxonomy/categories?q=${encodeURIComponent('TABLAS Snowboard')}`).expect(200)).body;
+      expect(found[0]).toMatchObject({ id: 'gid://shopify/TaxonomyCategory/sg-4-17-2-17', name: 'Tablas de snowboard' });
+      const accents = (await a.agent.get(`${t}/taxonomy/categories?q=${encodeURIComponent('esqui y snowboard')}`).expect(200)).body;
+      expect(accents.map((c: { id: string }) => c.id)).toContain('gid://shopify/TaxonomyCategory/sg-4-17-2');
+      await a.agent.get(`${t}/taxonomy/categories?parentId=${encodeURIComponent("x'; drop")}`).expect(400);
+
+      const base = { title: 'Tabla', variants: [{ optionValues: [], price: '10' }] };
+      // Se acepta el código corto o el GID; se guarda y devuelve con su ruta completa.
+      const product = (await a.agent.post(`${t}/products`).send({ ...base, categoryId: 'sg-4-17-2-17' }).expect(201)).body;
+      expect(product.category).toMatchObject({
+        id: 'gid://shopify/TaxonomyCategory/sg-4-17-2-17',
+        name: 'Tablas de snowboard',
+        fullName: expect.stringMatching(/^Equipamiento deportivo > .* > Tablas de snowboard$/),
+      });
+      // Una categoría que no existe: 400. Sin categoría: null.
+      await a.agent.post(`${t}/products`).send({ ...base, categoryId: 'gid://shopify/TaxonomyCategory/zz-999' }).expect(400);
+      await a.agent.post(`${t}/products`).send({ ...base, categoryId: 'no válida' }).expect(400);
+      const cleared = (
+        await a.agent
+          .put(`${t}/products/${product.id}`)
+          .send({ ...base, categoryId: '', variants: [{ id: product.variants[0].id, optionValues: [], price: '10' }] })
+          .expect(200)
+      ).body;
+      expect(cleared.category).toBeNull();
+    });
+
     it('productos: stock inicial por bodega, inventario en la lista, aduana, acciones en bloque y sugerencias', async () => {
       const a = await registerCompany('Empresa Lista E2E');
       const t = `/tenants/${a.slug}`;
@@ -545,7 +824,11 @@ describe('API (e2e)', () => {
       png.writeUInt32BE(600, 20);
 
       const uploaded = (await a.agent.post(`${t}/media`).attach('file', png, 'foto.png').expect(201)).body;
-      expect(uploaded).toMatchObject({ mimeType: 'image/png', width: 800, height: 600, fileSize: 64, alt: null });
+      expect(uploaded).toMatchObject({ mimeType: 'image/png', width: 800, height: 600, fileSize: 64, alt: null, filename: 'foto.png' });
+      // El nombre en UTF-8 llega en un campo aparte (el del archivo multipart puede llegar mal codificado).
+      const other = Buffer.concat([png, Buffer.from([1])]);
+      const named = (await a.agent.post(`${t}/media`).field('filename', 'carpeta/Póster ñandú.png').attach('file', other, 'x.png').expect(201)).body;
+      expect(named.filename).toBe('Póster ñandú.png');
       expect(uploaded.url).toBe(`/tenants/${a.slug}/media/${uploaded.id}/file`);
       // Mismo archivo otra vez: se reutiliza (sin duplicados).
       expect((await a.agent.post(`${t}/media`).attach('file', png, 'otra.png').expect(201)).body.id).toBe(uploaded.id);
@@ -575,6 +858,15 @@ describe('API (e2e)', () => {
       expect(product.description).toBe('<p>Algodón <strong>100%</strong></p>');
       expect(product.media).toEqual([{ ...uploaded, alt: 'Polera roja de frente' }]);
       expect((await a.agent.get(`${t}/products`).expect(200)).body.items[0].imageUrl).toBe(uploaded.url);
+      // Detalle (como en Shopify): en cuántos productos se usa; se puede renombrar.
+      expect((await a.agent.get(`${t}/media/${uploaded.id}`).expect(200)).body).toMatchObject({ filename: 'foto.png', usage: { products: 1 } });
+      expect((await a.agent.get(`${t}/media/${named.id}`).expect(200)).body.usage).toEqual({ products: 0 });
+      const renamed = (await a.agent.patch(`${t}/media/${uploaded.id}`).send({ filename: '  Polera frente.png ' }).expect(200)).body;
+      expect(renamed).toMatchObject({ filename: 'Polera frente.png', usage: { products: 1 } });
+      await a.agent.patch(`${t}/media/${uploaded.id}`).send({ filename: '../etc/passwd' }).expect(400);
+      await a.agent.patch(`${t}/media/${uploaded.id}`).send({ filename: '' }).expect(400);
+      await b.agent.get(`/tenants/${b.slug}/media/${uploaded.id}`).expect(404);
+      await b.agent.patch(`/tenants/${b.slug}/media/${uploaded.id}`).send({ filename: 'x.png' }).expect(404);
       // Una imagen de otra empresa no se puede asignar.
       const foreign = (await b.agent.post(`/tenants/${b.slug}/media`).attach('file', png, 'x.png').expect(201)).body;
       await a.agent

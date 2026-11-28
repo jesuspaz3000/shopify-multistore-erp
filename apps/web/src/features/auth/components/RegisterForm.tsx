@@ -19,7 +19,6 @@ export default function RegisterForm() {
     async (input) => {
       const me = await register(input);
       router.replace(`/${me.memberships[0].slug}/all`);
-      router.refresh();
     },
   );
 

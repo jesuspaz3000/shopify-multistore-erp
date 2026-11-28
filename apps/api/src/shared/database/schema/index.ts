@@ -4,3 +4,5 @@ export * from '../../../modules/shops/shops.schema.js';
 export * from '../../../modules/audit/audit.schema.js';
 export * from '../../../modules/inventory/infrastructure/persistence/inventory.schema.js';
 export * from '../../../modules/catalog/infrastructure/persistence/catalog.schema.js';
+export * from '../../../modules/sync/infrastructure/persistence/sync.schema.js';
+export * from '../../../modules/catalog/taxonomy/taxonomy.schema.js';

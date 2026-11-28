@@ -3,6 +3,8 @@ import { likePattern, type ProductsQuery } from '@erp/contracts';
 import { and, asc, count, desc, eq, ilike, inArray, isNull, like, max, min, ne, or, sql } from 'drizzle-orm';
 import { DB, type Database, type Tx } from '../../../shared/database/database.module.js';
 import { inventoryItems } from '../../inventory/infrastructure/persistence/inventory.schema.js';
+import { shops } from '../../shops/shops.schema.js';
+import { shopifyResourceLinks } from '../../sync/infrastructure/persistence/sync.schema.js';
 import {
   productOptions,
   productOptionValues,
@@ -24,10 +26,23 @@ export class ProductsRepository {
     return this.db.transaction(fn);
   }
 
-  /** Productos vigentes de la empresa, con estado y búsqueda (título, marca, tipo, SKU o código de barras). */
-  private filter(tenantId: number, query?: Pick<ProductsQuery, 'q' | 'status'>) {
+  /**
+   * Productos vigentes de la empresa, con estado, búsqueda (título, marca, tipo, SKU o código de barras)
+   * y tienda (shopId: los vinculados a esa tienda de Shopify o importados desde ella).
+   */
+  private filter(tenantId: number, query?: Pick<ProductsQuery, 'q' | 'status'>, shopId?: number) {
     const filters = [eq(products.tenantId, tenantId), isNull(products.deletedAt)];
     if (query?.status) filters.push(eq(products.status, query.status));
+    if (shopId) {
+      filters.push(
+        or(
+          eq(products.originShopId, shopId),
+          sql`exists (
+            select 1 from shopify_resource_links l
+            where l.erp_id = "products"."id" and l.resource_type = 'PRODUCT' and l.shop_id = ${shopId} and l.unlinked_at is null)`,
+        )!,
+      );
+    }
     if (query?.q) {
       const pattern = likePattern(query.q);
       // "products"."id" escrito a mano: sin JOIN, Drizzle no califica la columna y dentro de la
@@ -43,8 +58,8 @@ export class ProductsRepository {
     return and(...filters);
   }
 
-  async listPage(tenantId: number, query: ProductsQuery, tx: Executor = this.db) {
-    const where = this.filter(tenantId, query);
+  async listPage(tenantId: number, query: ProductsQuery, shopId?: number, tx: Executor = this.db) {
+    const where = this.filter(tenantId, query, shopId);
     const [items, [{ total }]] = await Promise.all([
       tx
         .select({
@@ -86,6 +101,57 @@ export class ProductsRepository {
       tx.select({ total: count() }).from(products).where(where),
     ]);
     return { items, total };
+  }
+
+  /** Id de una tienda de la empresa por su handle (undefined si no existe). */
+  async shopIdByHandle(tenantId: number, handle: string, tx: Executor = this.db): Promise<number | undefined> {
+    const [row] = await tx
+      .select({ id: shops.id })
+      .from(shops)
+      .where(and(eq(shops.tenantId, tenantId), eq(shops.handle, handle)))
+      .limit(1);
+    return row?.id;
+  }
+
+  /**
+   * Tiendas de cada producto: las vinculadas en Shopify y la tienda desde la que se importó.
+   * onlyShopIds restringe a las que el usuario puede ver (null = todas).
+   */
+  async shopsOf(
+    tenantId: number,
+    productIds: number[],
+    onlyShopIds: number[] | null,
+    tx: Executor = this.db,
+  ): Promise<Map<number, { id: number; name: string }[]>> {
+    const result = new Map<number, { id: number; name: string }[]>(productIds.map((id) => [id, []]));
+    if (productIds.length === 0) return result;
+    const visible = onlyShopIds ? inArray(shops.id, onlyShopIds.length > 0 ? onlyShopIds : [-1]) : undefined;
+    const [linked, origin] = await Promise.all([
+      tx
+        .select({ productId: shopifyResourceLinks.erpId, id: shops.id, name: shops.name })
+        .from(shopifyResourceLinks)
+        .innerJoin(shops, eq(shops.id, shopifyResourceLinks.shopId))
+        .where(
+          and(
+            eq(shopifyResourceLinks.tenantId, tenantId),
+            eq(shopifyResourceLinks.resourceType, 'PRODUCT'),
+            inArray(shopifyResourceLinks.erpId, productIds),
+            isNull(shopifyResourceLinks.unlinkedAt),
+            visible,
+          ),
+        ),
+      tx
+        .select({ productId: products.id, id: shops.id, name: shops.name })
+        .from(products)
+        .innerJoin(shops, eq(shops.id, products.originShopId))
+        .where(and(eq(products.tenantId, tenantId), inArray(products.id, productIds), visible)),
+    ]);
+    for (const row of [...linked, ...origin]) {
+      const list = result.get(row.productId);
+      if (list && !list.some((s) => s.id === row.id)) list.push({ id: row.id, name: row.name });
+    }
+    for (const list of result.values()) list.sort((a, b) => a.name.localeCompare(b.name));
+    return result;
   }
 
   async findById(tenantId: number, productId: number, tx: Executor = this.db): Promise<ProductRow | undefined> {

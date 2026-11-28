@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull } from 'drizzle-orm';
 import { DB, type Database, type Tx } from '../../../shared/database/database.module.js';
-import { media, productMedia } from '../infrastructure/persistence/catalog.schema.js';
+import { media, productMedia, products } from '../infrastructure/persistence/catalog.schema.js';
 
 type Executor = Database | Tx;
 export type MediaRow = typeof media.$inferSelect;
@@ -32,6 +32,23 @@ export class MediaRepository {
   async insert(values: typeof media.$inferInsert, tx: Executor = this.db): Promise<MediaRow> {
     const [row] = await tx.insert(media).values(values).returning();
     return row;
+  }
+
+  async update(tenantId: number, mediaId: number, values: Partial<typeof media.$inferInsert>, tx: Executor = this.db): Promise<void> {
+    await tx
+      .update(media)
+      .set(values)
+      .where(and(eq(media.tenantId, tenantId), eq(media.id, mediaId)));
+  }
+
+  /** En cuántos productos vigentes (no eliminados) se usa la imagen. */
+  async productUsage(tenantId: number, mediaId: number, tx: Executor = this.db): Promise<number> {
+    const [row] = await tx
+      .select({ total: count() })
+      .from(productMedia)
+      .innerJoin(products, eq(products.id, productMedia.productId))
+      .where(and(eq(productMedia.tenantId, tenantId), eq(productMedia.mediaId, mediaId), isNull(products.deletedAt)));
+    return row.total;
   }
 
   /** De los ids indicados, los que son imágenes de la empresa. */

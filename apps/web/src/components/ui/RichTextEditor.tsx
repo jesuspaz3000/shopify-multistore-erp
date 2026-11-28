@@ -82,7 +82,8 @@ export default function RichTextEditor({ label, value, onChange, disabled, error
           '&:focus-within': { borderColor: error ? 'error.main' : 'primary.main', boxShadow: (t) => `0 0 0 1px ${t.palette.primary.main}` },
         }}
       >
-        {editor && <Toolbar editor={editor} disabled={disabled} />}
+        {/* La barra se dibuja desde el primer render (también en el servidor): no "aparece" después. */}
+        <Toolbar editor={editor} disabled={disabled} />
         <Box
           sx={{
             '& .ProseMirror': { minHeight: 160, px: 2, py: 1.5, outline: 'none', typography: 'body1' },
@@ -95,7 +96,13 @@ export default function RichTextEditor({ label, value, onChange, disabled, error
             '& .ProseMirror a': { color: 'primary.main' },
           }}
         >
-          <EditorContent editor={editor} aria-label={label} />
+          {editor ? (
+            <EditorContent editor={editor} aria-label={label} />
+          ) : (
+            // Mientras Tiptap se crea en el cliente: el mismo texto con el mismo estilo (sin salto visual).
+            // `value` es la descripción que devolvió la API, ya limpiada en el servidor (sanitizeDescription).
+            <div className="ProseMirror" aria-label={label} dangerouslySetInnerHTML={{ __html: value }} />
+          )}
         </Box>
       </Box>
       {error && (
@@ -107,26 +114,55 @@ export default function RichTextEditor({ label, value, onChange, disabled, error
   );
 }
 
-function Toolbar({ editor, disabled }: { editor: Editor; disabled?: boolean }) {
+const IDLE_STATE = {
+  block: 'p' as Block,
+  bold: false,
+  italic: false,
+  underline: false,
+  strike: false,
+  link: false,
+  bullet: false,
+  ordered: false,
+  quote: false,
+};
+
+/** Barra de formato. Con el editor aún sin crear (primer render) se ve igual y los botones no hacen nada. */
+function Toolbar({ editor, disabled }: { editor: Editor | null; disabled?: boolean }) {
   // Estado de los botones (activo/inactivo) sin re-renderizar el formulario en cada tecla.
-  const state = useEditorState({
-    editor,
-    selector: ({ editor: e }) => ({
-      block: (e.isActive('heading', { level: 2 }) ? 'h2' : e.isActive('heading', { level: 3 }) ? 'h3' : e.isActive('heading', { level: 4 }) ? 'h4' : 'p') as Block,
-      bold: e.isActive('bold'),
-      italic: e.isActive('italic'),
-      underline: e.isActive('underline'),
-      strike: e.isActive('strike'),
-      link: e.isActive('link'),
-      bullet: e.isActive('bulletList'),
-      ordered: e.isActive('orderedList'),
-      quote: e.isActive('blockquote'),
-    }),
-  });
+  const state =
+    useEditorState({
+      editor,
+      selector: ({ editor: e }) =>
+        e
+          ? {
+              block: (e.isActive('heading', { level: 2 })
+                ? 'h2'
+                : e.isActive('heading', { level: 3 })
+                  ? 'h3'
+                  : e.isActive('heading', { level: 4 })
+                    ? 'h4'
+                    : 'p') as Block,
+              bold: e.isActive('bold'),
+              italic: e.isActive('italic'),
+              underline: e.isActive('underline'),
+              strike: e.isActive('strike'),
+              link: e.isActive('link'),
+              bullet: e.isActive('bulletList'),
+              ordered: e.isActive('orderedList'),
+              quote: e.isActive('blockquote'),
+            }
+          : IDLE_STATE,
+    }) ?? IDLE_STATE;
   const [linkAnchor, setLinkAnchor] = useState<HTMLElement | null>(null);
   const [url, setUrl] = useState('');
 
+  /** Ejecuta un comando solo cuando el editor ya existe. */
+  const run = (command: (e: Editor) => void) => () => {
+    if (editor) command(editor);
+  };
+
   const setBlock = (block: Block) => {
+    if (!editor) return;
     const chain = editor.chain().focus();
     if (block === 'p') chain.setParagraph().run();
     else chain.toggleHeading({ level: Number(block[1]) as 2 | 3 | 4 }).run();
@@ -171,25 +207,26 @@ function Toolbar({ editor, disabled }: { editor: Editor; disabled?: boolean }) {
         ))}
       </Select>
       <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-      {button('Negrita', state.bold, () => editor.chain().focus().toggleBold().run(), <FormatBoldIcon fontSize="small" />)}
-      {button('Cursiva', state.italic, () => editor.chain().focus().toggleItalic().run(), <FormatItalicIcon fontSize="small" />)}
-      {button('Subrayado', state.underline, () => editor.chain().focus().toggleUnderline().run(), <FormatUnderlinedIcon fontSize="small" />)}
-      {button('Tachado', state.strike, () => editor.chain().focus().toggleStrike().run(), <FormatStrikethroughIcon fontSize="small" />)}
+      {button('Negrita', state.bold, run((e) => e.chain().focus().toggleBold().run()), <FormatBoldIcon fontSize="small" />)}
+      {button('Cursiva', state.italic, run((e) => e.chain().focus().toggleItalic().run()), <FormatItalicIcon fontSize="small" />)}
+      {button('Subrayado', state.underline, run((e) => e.chain().focus().toggleUnderline().run()), <FormatUnderlinedIcon fontSize="small" />)}
+      {button('Tachado', state.strike, run((e) => e.chain().focus().toggleStrike().run()), <FormatStrikethroughIcon fontSize="small" />)}
       <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
       {button(
         'Enlace',
         state.link,
         (target) => {
+          if (!editor) return;
           setUrl((editor.getAttributes('link').href as string | undefined) ?? '');
           setLinkAnchor(target);
         },
         <LinkIcon fontSize="small" />,
       )}
-      {button('Lista con viñetas', state.bullet, () => editor.chain().focus().toggleBulletList().run(), <FormatListBulletedIcon fontSize="small" />)}
-      {button('Lista numerada', state.ordered, () => editor.chain().focus().toggleOrderedList().run(), <FormatListNumberedIcon fontSize="small" />)}
-      {button('Cita', state.quote, () => editor.chain().focus().toggleBlockquote().run(), <FormatQuoteIcon fontSize="small" />)}
+      {button('Lista con viñetas', state.bullet, run((e) => e.chain().focus().toggleBulletList().run()), <FormatListBulletedIcon fontSize="small" />)}
+      {button('Lista numerada', state.ordered, run((e) => e.chain().focus().toggleOrderedList().run()), <FormatListNumberedIcon fontSize="small" />)}
+      {button('Cita', state.quote, run((e) => e.chain().focus().toggleBlockquote().run()), <FormatQuoteIcon fontSize="small" />)}
       <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-      {button('Quitar formato', false, () => editor.chain().focus().unsetAllMarks().clearNodes().run(), <FormatClearIcon fontSize="small" />)}
+      {button('Quitar formato', false, run((e) => e.chain().focus().unsetAllMarks().clearNodes().run()), <FormatClearIcon fontSize="small" />)}
 
       <Popover
         open={!!linkAnchor}
@@ -202,6 +239,7 @@ function Toolbar({ editor, disabled }: { editor: Editor; disabled?: boolean }) {
           sx={{ p: 2, display: 'flex', gap: 1, alignItems: 'center' }}
           onSubmit={(e) => {
             e.preventDefault();
+            if (!editor) return;
             const chain = editor.chain().focus().extendMarkRange('link');
             if (url.trim()) chain.setLink({ href: url.trim() }).run();
             else chain.unsetLink().run();

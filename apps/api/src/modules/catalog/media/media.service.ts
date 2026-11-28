@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException, UnsupportedMediaTypeException } from '@nestjs/common';
-import { MEDIA_MAX_BYTES, type MediaResponse } from '@erp/contracts';
+import { MEDIA_MAX_BYTES, type MediaDetailResponse, type MediaResponse, type UpdateMediaData } from '@erp/contracts';
 import type { Tx } from '../../../shared/database/database.module.js';
 import type { TenantContext } from '../../../shared/http/request-context.js';
 import { MediaStorage } from '../../../shared/storage/media-storage.js';
@@ -9,6 +9,19 @@ import { MediaRepository, type MediaRow } from './media.repository.js';
 
 /** URL (relativa a la API) desde la que se sirve una imagen de la empresa. */
 export const mediaUrl = (tenantSlug: string, mediaId: number) => `/tenants/${tenantSlug}/media/${mediaId}/file`;
+
+const EXTENSIONS: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp' };
+
+/** Nombre para imágenes guardadas sin nombre (antes de que existiera el campo). */
+const defaultFilename = (row: Pick<MediaRow, 'id' | 'mimeType'>) => `imagen-${row.id}.${EXTENSIONS[row.mimeType] ?? 'img'}`;
+
+/** Nombre visible a partir del que trae el archivo: sin rutas ni caracteres de control, hasta 255. */
+export function cleanFilename(value: string | null | undefined): string | null {
+  const base = (value ?? '').split(/[\\/]/).pop() ?? '';
+  // eslint-disable-next-line no-control-regex
+  const clean = base.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 255);
+  return clean || null;
+}
 
 @Injectable()
 export class MediaService {
@@ -26,7 +39,29 @@ export class MediaService {
       width: row.width,
       height: row.height,
       fileSize: row.fileSize,
+      filename: row.filename ?? defaultFilename(row),
+      createdAt: row.createdAt.toISOString(),
     };
+  }
+
+  /** Imagen con su uso (en cuántos productos vigentes aparece). */
+  async detail(tenant: TenantContext, mediaId: number): Promise<MediaDetailResponse> {
+    const row = await this.findOrFail(tenant, mediaId);
+    const products = await this.repo.productUsage(tenant.tenantId, mediaId);
+    return { ...this.toResponse(tenant, row), usage: { products } };
+  }
+
+  /** Renombra la imagen (el nombre visible; el archivo guardado no cambia). */
+  async rename(tenant: TenantContext, mediaId: number, input: UpdateMediaData): Promise<MediaDetailResponse> {
+    await this.findOrFail(tenant, mediaId);
+    await this.repo.update(tenant.tenantId, mediaId, { filename: input.filename });
+    return this.detail(tenant, mediaId);
+  }
+
+  private async findOrFail(tenant: TenantContext, mediaId: number): Promise<MediaRow> {
+    const row = await this.repo.findById(tenant.tenantId, mediaId);
+    if (!row) throw new NotFoundException('Imagen no encontrada');
+    return row;
   }
 
   /**
@@ -34,7 +69,11 @@ export class MediaService {
    * declara el navegador) y el nombre del archivo lo genera el servidor. Si la empresa ya subió
    * exactamente el mismo archivo, se reutiliza.
    */
-  async upload(tenant: TenantContext, file: { buffer: Buffer; size: number } | undefined): Promise<MediaResponse> {
+  async upload(
+    tenant: TenantContext,
+    file: { buffer: Buffer; size: number } | undefined,
+    filename?: string | null,
+  ): Promise<MediaResponse> {
     if (!file || file.size === 0) throw new BadRequestException('Adjunta una imagen');
     if (file.size > MEDIA_MAX_BYTES) throw new BadRequestException('La imagen supera los 20 MB');
     const image = sniffImage(file.buffer);
@@ -54,6 +93,7 @@ export class MediaService {
       height: image.height,
       fileSize: file.size,
       checksumSha256: checksum,
+      filename: cleanFilename(filename),
     });
     return this.toResponse(tenant, row);
   }

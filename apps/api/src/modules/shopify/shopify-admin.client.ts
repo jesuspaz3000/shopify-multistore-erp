@@ -110,7 +110,13 @@ export class ShopifyAdminClient {
       if (res.status === 401 || res.status === 403) {
         throw new ShopifyError('UNAUTHORIZED', 'Shopify rechazó el token de acceso');
       }
+      if (res.status === 404) {
+        throw new ShopifyError('SHOP_NOT_FOUND', 'Shopify no encontró la tienda: revisa que el dominio siga existiendo');
+      }
       const body = (await res.json().catch(() => ({}))) as GraphqlResponse<T>;
+      // Fuera de GraphQL (ej. 400/402/423) Shopify responde { errors: "texto" }: se normaliza a lista.
+      if (typeof body.errors === 'string') body.errors = [{ message: body.errors }];
+      else if (body.errors && !Array.isArray(body.errors)) body.errors = [{ message: JSON.stringify(body.errors) }];
       const throttled = body.errors?.some((e) => e.extensions?.code === 'THROTTLED');
       if (throttled && attempt < MAX_ATTEMPTS) {
         await sleep(this.throttleWaitMs(body));

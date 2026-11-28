@@ -174,15 +174,14 @@ export default function LocationsManager({ tenant, page, searchQuery, shops, can
             Lugares donde guardas stock. Una bodega puede abastecer a varias tiendas.
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-          {!noneAtAll && <TableSearch placeholder="Buscar por código, nombre o ciudad…" />}
-          {canManage && (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setEditing('new')} sx={{ flexShrink: 0 }}>
-              Agregar bodega
-            </Button>
-          )}
-        </Stack>
+        {canManage && (
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setEditing('new')} sx={{ flexShrink: 0 }}>
+            Agregar bodega
+          </Button>
+        )}
       </Stack>
+
+      {!noneAtAll && <TableSearch placeholder="Buscar por código, nombre o ciudad…" />}
 
       {noneAtAll ? (
         <Paper variant="outlined" sx={{ p: 5, textAlign: 'center', borderStyle: 'dashed' }}>

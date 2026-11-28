@@ -33,7 +33,24 @@ export type MediaResponse = {
   width: number | null;
   height: number | null;
   fileSize: number;
+  /** Nombre visible del archivo (editable). */
+  filename: string;
+  createdAt: string;
 };
+
+/** Detalle de una imagen: dónde se usa (como "Usado en" de Shopify). */
+export type MediaDetailResponse = MediaResponse & { usage: { products: number } };
+
+/** Nombre de archivo: sin rutas ni caracteres de control. */
+export const mediaFilenameSchema = z
+  .string('Escribe un nombre')
+  .trim()
+  .min(1, 'Escribe un nombre')
+  .max(255, 'Máximo 255 caracteres')
+  .refine((name) => !/[\\/\u0000-\u001f\u007f]/.test(name), 'No puede tener / \\ ni caracteres de control');
+
+export const updateMediaSchema = z.object({ filename: mediaFilenameSchema });
+export type UpdateMediaData = z.output<typeof updateMediaSchema>;
 
 /** Imagen del producto (en orden; la primera es la principal) con su texto alternativo. */
 export const productMediaInputSchema = z.object({
@@ -44,10 +61,36 @@ export const productMediaInputSchema = z.object({
     .transform((value) => (value ? value : null)),
 });
 
+// ---------- Categoría (taxonomía estándar de Shopify) ----------
+
+/** Categoría de la taxonomía de Shopify. `id` es el GID (gid://shopify/TaxonomyCategory/sg-4-17-2-17). */
+export type TaxonomyCategoryResponse = { id: string; name: string; fullName: string; isLeaf: boolean; level: number };
+
+/** Buscar (q) o navegar (hijos de parentId; sin ninguno = categorías raíz). */
+export const taxonomyQuerySchema = z.object({
+  q: z.string().trim().max(100).optional().catch(undefined),
+  parentId: z.string().trim().max(150).optional().catch(undefined),
+});
+export type TaxonomyQuery = z.output<typeof taxonomyQuerySchema>;
+
+/** Categoría elegida: el GID o el código corto ("sg-4-17-2-17"). */
+const categoryIdSchema = z
+  .union([z.literal(''), z.string().trim().max(150).regex(/^(gid:\/\/shopify\/TaxonomyCategory\/)?[a-z]{2}(-\d+)*$/, 'Categoría inválida')])
+  .nullish()
+  .transform((value) => (value ? value : null));
+
 // ---------- Query ----------
 
 export const productsQuerySchema = paginationQuerySchema.extend({
   status: z.enum(PRODUCT_STATUSES).optional().catch(undefined),
+  /** Handle de una tienda: solo sus productos. Sin él ("Todas las tiendas"): el catálogo completo. */
+  shop: z
+    .string()
+    .trim()
+    .max(100)
+    .regex(/^[a-z0-9-]+$/)
+    .optional()
+    .catch(undefined),
 });
 export type ProductsQuery = z.output<typeof productsQuerySchema>;
 
@@ -153,6 +196,8 @@ export const productInputSchema = z
     description: nullableText(50_000),
     vendor: nullableText(255),
     productType: nullableText(255),
+    /** Categoría de la taxonomía de Shopify (null = sin categoría). */
+    categoryId: categoryIdSchema,
     status: z.enum(PRODUCT_STATUSES, 'Estado inválido').default('ACTIVE'),
     tags: z
       .array(z.string().trim().min(1).max(255))
@@ -243,6 +288,8 @@ export type ProductListItem = {
   minPrice: string | null;
   maxPrice: string | null;
   currency: string;
+  /** Tiendas donde está el producto (las que el usuario puede ver); vacío = aún en ninguna. */
+  shops: { id: number; name: string }[];
   /** Variantes que controlan stock y su disponible total ("50 en existencias para 3 variantes"). */
   trackedVariants: number;
   available: number;
@@ -300,6 +347,8 @@ export type ProductResponse = {
   description: string | null;
   vendor: string | null;
   productType: string | null;
+  /** Categoría de la taxonomía de Shopify. */
+  category: TaxonomyCategoryResponse | null;
   status: ProductStatus;
   tags: string[];
   seoTitle: string | null;

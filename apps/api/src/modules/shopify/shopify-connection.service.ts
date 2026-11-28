@@ -265,6 +265,12 @@ export class ShopifyConnectionService {
     return refresh;
   }
 
+  /** Consulta GraphQL a una tienda conectada (token vigente y errores traducidos a HTTP). */
+  async graphql<T>(tenantId: number, shopId: number, query: string, variables?: Record<string, unknown>): Promise<T> {
+    const { domain, token } = await this.session(tenantId, shopId);
+    return this.call(() => this.client.graphql<T>(domain, token, query, variables));
+  }
+
   private async refresh(shop: ShopRow): Promise<ShopifySession> {
     if (!shop.shopifyClientId || !shop.encryptedClientSecret || !shop.myshopifyDomain) {
       throw new ConflictException('Faltan las credenciales de Shopify: vuelve a conectar la tienda');

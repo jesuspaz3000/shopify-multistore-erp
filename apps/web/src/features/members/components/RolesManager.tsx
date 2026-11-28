@@ -154,15 +154,14 @@ export default function RolesManager({ tenant, page, searchQuery, myPermissions,
             Cada rol es un conjunto de permisos. Edita los existentes o crea los tuyos. Nadie otorga más permisos que los suyos.
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-          <TableSearch placeholder="Buscar rol…" />
-          {canManage && (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialog({})} sx={{ flexShrink: 0 }}>
-              Crear rol
-            </Button>
-          )}
-        </Stack>
+        {canManage && (
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialog({})} sx={{ flexShrink: 0 }}>
+            Crear rol
+          </Button>
+        )}
       </Stack>
+
+      <TableSearch placeholder="Buscar rol…" />
 
       <DataTable columns={columns} data={page} getRowId={(r) => r.id} searchQuery={searchQuery} aria-label="Roles" />
 

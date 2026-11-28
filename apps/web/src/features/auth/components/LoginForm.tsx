@@ -18,9 +18,10 @@ export default function LoginForm({ footer }: { footer?: React.ReactNode }) {
     loginSchema,
     { email: '', password: '' },
     async (input) => {
-      await login(input);
-      router.replace('/select-tenant');
-      router.refresh();
+      const me = await login(input);
+      // Con una sola empresa se entra directo (sin pasar por "Elegir empresa": un parpadeo menos).
+      // Sin router.refresh(): replace ya trae la página nueva del servidor (refrescar la volvía a pedir).
+      router.replace(me.memberships.length === 1 ? `/${me.memberships[0].slug}/all` : '/select-tenant');
     },
   );
 

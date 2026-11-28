@@ -19,7 +19,8 @@ export function createHttp(instance: AxiosInstance) {
 
   return {
     get: <T>(url: string, params?: object) => request<T>({ method: 'GET', url, params }),
-    post: <T>(url: string, body?: unknown) => request<T>({ method: 'POST', url, data: body }),
+    post: <T>(url: string, body?: unknown, options?: Pick<AxiosRequestConfig, 'timeout'>) =>
+      request<T>({ method: 'POST', url, data: body, ...options }),
     put: <T>(url: string, body?: unknown) => request<T>({ method: 'PUT', url, data: body }),
     patch: <T>(url: string, body?: unknown) => request<T>({ method: 'PATCH', url, data: body }),
     delete: <T>(url: string) => request<T>({ method: 'DELETE', url }),

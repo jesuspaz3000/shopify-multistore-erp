@@ -214,6 +214,22 @@ export class StockRepository {
     return new Set(rows.map((r) => r.id));
   }
 
+  /** De los ítems indicados, los que ya tienen nivel (fila de stock) en la bodega. */
+  async existingLevelIds(tenantId: number, locationId: number, itemIds: number[], tx: Executor = this.db): Promise<Set<number>> {
+    if (itemIds.length === 0) return new Set();
+    const rows = await tx
+      .select({ id: inventoryLevels.inventoryItemId })
+      .from(inventoryLevels)
+      .where(
+        and(
+          eq(inventoryLevels.tenantId, tenantId),
+          eq(inventoryLevels.locationId, locationId),
+          inArray(inventoryLevels.inventoryItemId, itemIds),
+        ),
+      );
+    return new Set(rows.map((r) => r.id));
+  }
+
   /** Crea niveles con stock inicial (ítems recién creados: aún no tienen niveles). */
   async insertLevels(rows: { tenantId: number; inventoryItemId: number; locationId: number; quantity: number }[], tx: Tx) {
     if (rows.length === 0) return;

@@ -32,6 +32,8 @@ type Props = {
   /** Base de las rutas de producto: /{tenant}/{shop}/products */
   basePath: string;
   page: Paginated<ProductListItem>;
+  /** Tienda elegida arriba (solo sus productos); null = todas las tiendas (catálogo completo). */
+  shopName: string | null;
   searchQuery?: string;
   status?: ProductStatus;
   /** Hay algún filtro activo (búsqueda o estado). */
@@ -73,7 +75,7 @@ function InventoryText({ product }: { product: ProductListItem }) {
 }
 
 /** Catálogo maestro: pestañas por estado, búsqueda, selección y acciones en bloque. */
-export default function ProductsTable({ tenant, basePath, page, searchQuery, status, filtered, canWrite }: Props) {
+export default function ProductsTable({ tenant, basePath, page, shopName, searchQuery, status, filtered, canWrite }: Props) {
   const router = useRouter();
   const notify = useUiStore((s) => s.notify);
   const { setParams } = useTableParams();
@@ -139,6 +141,24 @@ export default function ProductsTable({ tenant, basePath, page, searchQuery, sta
     },
     { key: 'inventory', header: 'Inventario', minWidth: 200, render: (p) => <InventoryText product={p} /> },
     { key: 'price', header: 'Precio', nowrap: true, render: (p) => priceRange(p.minPrice, p.maxPrice, p.currency) },
+    {
+      key: 'shops',
+      header: 'Tienda',
+      // Con una tienda elegida sobra: todos son de esa tienda.
+      hidden: !!shopName,
+      render: (p) =>
+        p.shops.length === 0 ? (
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+            Sin tienda
+          </Typography>
+        ) : (
+          <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.5 }}>
+            {p.shops.map((s) => (
+              <Chip key={s.id} size="small" variant="outlined" label={s.name} />
+            ))}
+          </Stack>
+        ),
+    },
     { key: 'type', header: 'Tipo', render: (p) => p.productType ?? '—' },
     { key: 'vendor', header: 'Proveedor', render: (p) => p.vendor ?? '—' },
   ];
@@ -148,9 +168,14 @@ export default function ProductsTable({ tenant, basePath, page, searchQuery, sta
   return (
     <Stack spacing={2}>
       <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-        <Typography variant="h5" component="h1" sx={{ fontWeight: 600 }}>
-          Productos
-        </Typography>
+        <Box>
+          <Typography variant="h5" component="h1" sx={{ fontWeight: 600 }}>
+            Productos
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+            {shopName ? `De la tienda ${shopName}` : 'Catálogo de todas tus tiendas. Elige una tienda arriba para ver solo las suyas.'}
+          </Typography>
+        </Box>
         {canWrite && (
           <Button component={Link} href={`${basePath}/new`} variant="contained" startIcon={<AddIcon />} sx={{ flexShrink: 0 }}>
             Agregar producto
@@ -162,17 +187,24 @@ export default function ProductsTable({ tenant, basePath, page, searchQuery, sta
         <Paper variant="outlined" sx={{ p: 5, textAlign: 'center', borderStyle: 'dashed' }}>
           <SellOutlinedIcon sx={{ fontSize: 40, color: 'text.secondary' }} />
           <Typography variant="subtitle1" sx={{ mt: 1 }}>
-            Aún no hay productos
+            {shopName ? `“${shopName}” aún no tiene productos` : 'Aún no hay productos'}
           </Typography>
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            {canWrite ? 'Agrega tu primer producto con sus variantes (talla, color…).' : 'Alguien con permiso de catálogo debe crearlos.'}
+            {shopName
+              ? 'Impórtalos desde Configuración → Tiendas, o elige “Todas las tiendas” arriba para ver el catálogo completo.'
+              : canWrite
+                ? 'Agrega tu primer producto con sus variantes (talla, color…) o impórtalos desde Configuración → Tiendas.'
+                : 'Alguien con permiso de catálogo debe crearlos.'}
           </Typography>
         </Paper>
       ) : (
         <Stack spacing={0}>
-          {/* Pestañas de estado + búsqueda, sobre la tabla (como en Shopify). */}
+          <Box sx={{ mb: 2 }}>
+            <TableSearch placeholder="Buscar por título, proveedor o SKU…" />
+          </Box>
+          {/* Pestañas de estado sobre la tabla (como en Shopify). */}
           <Paper variant="outlined" sx={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 0, px: 1 }}>
-            <Stack direction={{ xs: 'column', md: 'row' }} sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between', gap: 1, py: 1 }}>
+            <Stack direction="row" sx={{ alignItems: 'center', py: 1 }}>
               <Tabs
                 value={status ?? ''}
                 onChange={(_, value: string) => setParams({ status: value, page: 1 })}
@@ -183,7 +215,6 @@ export default function ProductsTable({ tenant, basePath, page, searchQuery, sta
                   <Tab key={t.value} value={t.value} label={t.label} />
                 ))}
               </Tabs>
-              <TableSearch placeholder="Buscar por título, proveedor o SKU…" />
             </Stack>
           </Paper>
           <Box sx={{ '& > .MuiPaper-root': { borderTopLeftRadius: 0, borderTopRightRadius: 0 } }}>

@@ -1,4 +1,4 @@
-import type { ProductInput, ProductResponse, ProductStatus } from '@erp/contracts';
+import type { ProductInput, ProductResponse, ProductStatus, TaxonomyCategoryResponse } from '@erp/contracts';
 import { emptyFields, newUid, type OptionDraft, sortVariants, type VariantDraft } from '../variants/variant-ops';
 
 // Estado del formulario de producto (las reglas de opciones/variantes viven en variants/variant-ops.ts).
@@ -9,6 +9,8 @@ export type ProductFormState = {
   status: ProductStatus;
   vendor: string;
   productType: string;
+  /** Categoría de la taxonomía estándar de Shopify (null = sin categoría). */
+  category: TaxonomyCategoryResponse | null;
   tags: string[];
   seoTitle: string;
   seoDescription: string;
@@ -30,6 +32,7 @@ export function initialState(product?: ProductResponse): ProductFormState {
       status: 'ACTIVE',
       vendor: '',
       productType: '',
+      category: null,
       tags: [],
       seoTitle: '',
       seoDescription: '',
@@ -75,6 +78,7 @@ export function initialState(product?: ProductResponse): ProductFormState {
     status: product.status,
     vendor: product.vendor ?? '',
     productType: product.productType ?? '',
+    category: product.category,
     tags: product.tags,
     seoTitle: product.seoTitle ?? '',
     seoDescription: product.seoDescription ?? '',
@@ -94,6 +98,7 @@ export function toInput(state: ProductFormState): ProductInput {
     status: state.status,
     vendor: state.vendor,
     productType: state.productType,
+    categoryId: state.category?.id ?? '',
     tags: state.tags,
     seoTitle: state.seoTitle,
     seoDescription: state.seoDescription,

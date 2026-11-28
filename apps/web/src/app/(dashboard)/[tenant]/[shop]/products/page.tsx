@@ -5,6 +5,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
 import { getProductsPage } from '@/features/products/api/products.server';
+import { getShopOptions } from '@/features/shops/api/shops.server';
 import ProductsTable from '@/features/products/components/ProductsTable';
 import { can } from '@/features/tenant/permissions';
 import { getMe } from '@/lib/session';
@@ -31,14 +32,21 @@ async function ProductsSection({ params, searchParams }: Pick<Props, 'params' | 
     return <Alert severity="info">Tu rol no permite ver el catálogo de productos.</Alert>;
   }
 
-  const query = productsQuerySchema.parse({ ...readTableQuery(search), status: firstParam(search, 'status') });
-  const page = await getProductsPage(tenant, query);
+  // Una tienda elegida arriba: solo sus productos. "Todas las tiendas": el catálogo completo.
+  const query = productsQuerySchema.parse({
+    ...readTableQuery(search),
+    status: firstParam(search, 'status'),
+    shop: shop === 'all' ? undefined : shop,
+  });
+  const [page, shops] = await Promise.all([getProductsPage(tenant, query), getShopOptions(tenant)]);
+  const currentShop = shops.find((s) => s.handle === shop);
 
   return (
     <ProductsTable
       tenant={tenant}
       basePath={`/${tenant}/${shop}/products`}
       page={page}
+      shopName={currentShop?.name ?? null}
       searchQuery={query.q}
       status={query.status}
       filtered={!!query.q || !!query.status}

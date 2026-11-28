@@ -1,4 +1,4 @@
-import type { ConnectShopifyData, ShopResponse } from '@erp/contracts';
+import type { ConnectShopifyData, ShopifyImportResponse, ShopResponse } from '@erp/contracts';
 import { http } from '@/lib/http';
 
 // Mutaciones de tiendas (Client Components). Después de cada una, refrescar la ruta con router.refresh().
@@ -9,6 +9,10 @@ const base = (tenant: string) => `/tenants/${encodeURIComponent(tenant)}/shops`;
 export const connectShopify = (tenant: string, input: ConnectShopifyData) => http.post<ShopResponse>(`${base(tenant)}/connect`, input);
 
 export const refreshShopify = (tenant: string, shopId: number) => http.post<ShopResponse>(`${base(tenant)}/${shopId}/shopify/refresh`);
+
+/** Importa ubicaciones, productos y stock. Con catálogos grandes puede tardar varios minutos. */
+export const importFromShopify = (tenant: string, shopId: number) =>
+  http.post<ShopifyImportResponse>(`${base(tenant)}/${shopId}/shopify/import`, undefined, { timeout: 600_000 });
 
 export const disconnectShopify = (tenant: string, shopId: number) => http.delete<ShopResponse>(`${base(tenant)}/${shopId}/shopify`);
 

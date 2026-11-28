@@ -34,6 +34,7 @@ import { InventoryFields, PricingFields, ShippingFields } from '../variants/Vari
 import type { VariantFields } from '../variants/variant-ops';
 import VariantsSection from '../variants/VariantsSection';
 import { errorsOf, initialState, mapErrors, type ProductFormState, toInput } from './product-form-state';
+import CategoryPicker from './CategoryPicker';
 import MediaSection from './MediaSection';
 import SeoSection from './SeoSection';
 
@@ -252,6 +253,13 @@ export default function ProductForm({ basePath, tenant, product, currency, canWr
                   disabled={disabled}
                 />
                 {errors.media && <Alert severity="error">{errors.media}</Alert>}
+                <CategoryPicker
+                  tenant={tenant}
+                  value={state.category}
+                  onChange={(category) => set({ category }, ['categoryId'])}
+                  error={errors.categoryId}
+                  disabled={disabled}
+                />
               </Stack>
             </Section>
 

@@ -145,6 +145,7 @@ export const media = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     mediaContentType: varchar({ length: 20 }).notNull().default('IMAGE'), // IMAGE | VIDEO | EXTERNAL_VIDEO | MODEL_3D
     storageKey: varchar({ length: 500 }).notNull(),
+    filename: varchar({ length: 255 }), // nombre visible (el del archivo subido o el de Shopify); editable
     mimeType: varchar({ length: 100 }).notNull(),
     alt: varchar({ length: 512 }),
     width: integer(),

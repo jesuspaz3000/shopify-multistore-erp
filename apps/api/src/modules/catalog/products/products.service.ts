@@ -18,16 +18,20 @@ import {
 import type { Tx } from '../../../shared/database/database.module.js';
 import { isUniqueViolation } from '../../../shared/database/pg-errors.js';
 import type { TenantContext } from '../../../shared/http/request-context.js';
-import { AuditService } from '../../audit/audit.service.js';
+import { type AuditSource, AuditService } from '../../audit/audit.service.js';
 import { nextAvailableSlug, slugify } from '../../identity/slug.js';
 import { StockService } from '../../inventory/stock/stock.service.js';
 import { MediaService, mediaUrl } from '../media/media.service.js';
 import { sanitizeDescription } from './sanitize-description.js';
 import { type ProductRow, ProductsRepository } from './products.repository.js';
+import { TaxonomyService } from '../taxonomy/taxonomy.service.js';
 import { TenantCurrencyReader } from './tenant-currency.reader.js';
 
 const BULK_STATUS: Record<Exclude<ProductBulkAction, 'delete'>, ProductStatus> = { activate: 'ACTIVE', draft: 'DRAFT', archive: 'ARCHIVED' };
-const HANDLE_TAKEN = 'Ya existe un producto con esa URL';
+export const HANDLE_TAKEN = 'Ya existe un producto con esa URL';
+
+/** Quién guarda: un usuario en el ERP (por defecto) o la importación desde una tienda. */
+export type SaveOptions = { source?: AuditSource; shopId?: number };
 const STALE ='Otra persona modificó este producto mientras lo editabas. Recarga la página para ver sus cambios.';
 
 @Injectable()
@@ -38,16 +42,31 @@ export class ProductsService {
     private readonly audit: AuditService,
     private readonly stock: StockService,
     private readonly media: MediaService,
+    private readonly taxonomy: TaxonomyService,
   ) {}
 
   async list(tenant: TenantContext, query: ProductsQuery): Promise<Paginated<ProductListItem>> {
+    // Una tienda: solo sus productos. Que no exista o el usuario no tenga acceso = 404 (no se revela).
+    let shopId: number | undefined;
+    if (query.shop) {
+      shopId = await this.repo.shopIdByHandle(tenant.tenantId, query.shop);
+      if (!shopId || (tenant.allowedShopIds && !tenant.allowedShopIds.includes(shopId))) {
+        throw new NotFoundException('Tienda no encontrada');
+      }
+    }
     const [{ items, total }, currency] = await Promise.all([
-      this.repo.listPage(tenant.tenantId, query),
+      this.repo.listPage(tenant.tenantId, query, shopId),
       this.currency.of(tenant.tenantId),
     ]);
+    const shopsOf = await this.repo.shopsOf(
+      tenant.tenantId,
+      items.map((p) => p.id),
+      tenant.allowedShopIds,
+    );
     return paginated(
       items.map(({ featuredMediaId, ...row }) => ({
         ...row,
+        shops: shopsOf.get(row.id) ?? [],
         imageUrl: featuredMediaId ? mediaUrl(tenant.slug, featuredMediaId) : null,
         status: row.status as ProductStatus,
         minPrice: row.minPrice ? trimDecimal(row.minPrice) : null,
@@ -64,8 +83,9 @@ export class ProductsService {
     return this.detail(tenant, await this.findOrFail(tenant, productId));
   }
 
-  async create(tenant: TenantContext, userId: number, input: ProductData): Promise<ProductResponse> {
+  async create(tenant: TenantContext, userId: number, input: ProductData, options: SaveOptions = {}): Promise<ProductResponse> {
     await this.assertSkusFree(tenant.tenantId, input, null);
+    const categoryGid = await this.taxonomy.resolve(input.categoryId);
     const currency = await this.currency.of(tenant.tenantId);
     const product = await this.guard(() =>
       this.repo.transaction(async (tx) => {
@@ -78,10 +98,13 @@ export class ProductsService {
           const base = slugify(input.title);
           handle = nextAvailableSlug(base, await this.repo.takenHandles(tenant.tenantId, base, tx));
         }
-        const created = await this.repo.insertProduct({ tenantId: tenant.tenantId, handle, ...productColumns(input) }, tx);
+        const created = await this.repo.insertProduct(
+          { tenantId: tenant.tenantId, handle, originShopId: options.shopId ?? null, ...productColumns(input), categoryGid },
+          tx,
+        );
         await this.saveVariants(tx, tenant.tenantId, userId, created.id, input, currency, true);
         await this.media.setProductMedia(tenant.tenantId, created.id, input.media, tx);
-        await this.record(tx, tenant, userId, created.id, 'CREATE', { new: summary(input) });
+        await this.record(tx, tenant, userId, created.id, 'CREATE', { new: summary(input) }, options);
         return created;
       }),
     );
@@ -89,15 +112,22 @@ export class ProductsService {
   }
 
   /** Guarda el producto completo (datos, opciones y variantes). Las variantes con id se conservan. */
-  async update(tenant: TenantContext, userId: number, productId: number, input: ProductData): Promise<ProductResponse> {
+  async update(
+    tenant: TenantContext,
+    userId: number,
+    productId: number,
+    input: ProductData,
+    options: SaveOptions = {},
+  ): Promise<ProductResponse> {
     const current = await this.findOrFail(tenant, productId);
     if (input.version !== undefined && input.version !== current.version) throw new ConflictException(STALE);
     await this.assertSkusFree(tenant.tenantId, input, productId);
+    const categoryGid = await this.taxonomy.resolve(input.categoryId);
     const currency = await this.currency.of(tenant.tenantId);
     const product = await this.guard(() =>
       this.repo.transaction(async (tx) => {
         // Renombrar no cambia la URL (no se rompen los enlaces); solo cambia si se edita a mano.
-        const columns: Parameters<ProductsRepository['updateProduct']>[3] = productColumns(input);
+        const columns: Parameters<ProductsRepository['updateProduct']>[3] = { ...productColumns(input), categoryGid };
         if (input.handle && input.handle !== current.handle) {
           if ((await this.repo.takenHandles(tenant.tenantId, input.handle, tx)).has(input.handle)) throw new ConflictException(HANDLE_TAKEN);
           columns.handle = input.handle;
@@ -109,7 +139,7 @@ export class ProductsService {
         await this.record(tx, tenant, userId, productId, 'UPDATE', {
           old: { title: current.title, status: current.status },
           new: summary(input),
-        });
+        }, options);
         return updated;
       }),
     );
@@ -259,10 +289,11 @@ export class ProductsService {
   }
 
   private async detail(tenant: TenantContext, product: ProductRow): Promise<ProductResponse> {
-    const [{ options, values, variants, links }, currency, media] = await Promise.all([
+    const [{ options, values, variants, links }, currency, media, categories] = await Promise.all([
       this.repo.loadDetail(tenant.tenantId, product.id),
       this.currency.of(tenant.tenantId),
       this.media.productMedia(tenant, product.id),
+      this.taxonomy.byIds(product.categoryGid ? [product.categoryGid] : []),
     ]);
     const levels = await this.stock.levelsByItem(
       tenant.tenantId,
@@ -280,6 +311,7 @@ export class ProductsService {
       description: product.descriptionHtml,
       vendor: product.vendor,
       productType: product.productType,
+      category: (product.categoryGid && categories.get(product.categoryGid)) || null,
       status: product.status as ProductStatus,
       tags: product.tags,
       seoTitle: product.seoTitle,
@@ -321,9 +353,19 @@ export class ProductsService {
     productId: number,
     action: 'CREATE' | 'UPDATE' | 'DELETE',
     changes: Record<string, unknown>,
+    options: SaveOptions = {},
   ) {
     return this.audit.record(
-      { tenantId: tenant.tenantId, userId, source: 'ERP_USER', entityType: 'Product', entityId: productId, action, changes },
+      {
+        tenantId: tenant.tenantId,
+        shopId: options.shopId ?? null,
+        userId,
+        source: options.source ?? 'ERP_USER',
+        entityType: 'Product',
+        entityId: productId,
+        action,
+        changes,
+      },
       tx,
     );
   }
@@ -344,7 +386,7 @@ function productColumns(input: ProductData) {
 }
 
 function summary(input: ProductData) {
-  return { title: input.title, status: input.status, options: input.options.map((o) => o.name), variants: input.variants.length };
+  return { title: input.title, status: input.status, categoryId: input.categoryId, options: input.options.map((o) => o.name), variants: input.variants.length };
 }
 
 /** numeric(18,4) llega como "19.9000": se muestra "19.90" (o "20" si es entero). */

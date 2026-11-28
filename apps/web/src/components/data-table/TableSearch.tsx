@@ -12,7 +12,10 @@ type Props = {
   paramPrefix?: string;
 };
 
-/** Búsqueda de una tabla: escribe ?q= en la URL (con espera de 400 ms) y vuelve a la página 1. */
+/**
+ * Búsqueda de una tabla: escribe ?q= en la URL (con espera de 400 ms) y vuelve a la página 1.
+ * Va en su propia fila, entre el título y la tabla (sobre los filtros), a todo el ancho.
+ */
 export default function TableSearch({ placeholder = 'Buscar…', paramPrefix = '' }: Props) {
   const { setParams, current } = useTableParams(paramPrefix);
   const urlQuery = current('q') ?? '';
@@ -40,7 +43,7 @@ export default function TableSearch({ placeholder = 'Buscar…', paramPrefix = '
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      sx={{ width: { xs: '100%', sm: 280 } }}
+      fullWidth
       slotProps={{
         input: {
           startAdornment: (

@@ -142,6 +142,60 @@ export class StockService {
     );
   }
 
+  /**
+   * Iguala el disponible del ERP al de una tienda Shopify (importación). Solo ítems que controlan
+   * stock y bodegas activas; cada diferencia queda en el kardex con origen SHOPIFY: "initial" si la
+   * variante aún no tenía stock en esa bodega, "correction" si ya lo tenía. Devuelve cuántos niveles cambiaron.
+   */
+  async syncFromShopify(
+    tenantId: number,
+    shopId: number,
+    userId: number,
+    entries: { inventoryItemId: number; locationId: number; available: number }[],
+  ): Promise<number> {
+    if (entries.length === 0) return 0;
+    const adjustable = await this.repo.adjustableItemIds(tenantId, [...new Set(entries.map((e) => e.inventoryItemId))]);
+    const active = await this.repo.activeLocationIds(tenantId, [...new Set(entries.map((e) => e.locationId))]);
+    const byLocation = new Map<number, Map<number, number>>();
+    for (const e of entries) {
+      if (!adjustable.has(e.inventoryItemId) || !active.has(e.locationId)) continue;
+      if (!byLocation.has(e.locationId)) byLocation.set(e.locationId, new Map());
+      // Shopify permite disponible negativo (sobreventa); en el ERP el mínimo es 0.
+      byLocation.get(e.locationId)!.set(e.inventoryItemId, Math.max(0, e.available));
+    }
+
+    return this.repo.transaction(async (tx) => {
+      let adjusted = 0;
+      const kardex: Parameters<StockRepository['insertAdjustments']>[0] = [];
+      for (const [locationId, targets] of byLocation) {
+        const itemIds = [...targets.keys()];
+        const existing = await this.repo.existingLevelIds(tenantId, locationId, itemIds, tx);
+        const levels = await this.repo.lockLevels(tenantId, locationId, itemIds, tx);
+        for (const [itemId, target] of targets) {
+          const delta = target - levels.get(itemId)!.available;
+          if (delta === 0) continue;
+          const updated = await this.repo.applyAvailableDelta(tenantId, locationId, itemId, delta, tx);
+          adjusted++;
+          kardex.push({
+            tenantId,
+            shopId,
+            inventoryItemId: itemId,
+            locationId,
+            quantityName: 'available',
+            delta,
+            quantityAfter: updated.available,
+            reason: existing.has(itemId) ? 'correction' : 'initial',
+            note: 'Importado desde Shopify',
+            source: 'SHOPIFY',
+            userId,
+          });
+        }
+      }
+      await this.repo.insertAdjustments(kardex, tx);
+      return adjusted;
+    });
+  }
+
   private async activeLocation(tenant: TenantContext, locationId: number) {
     const location = await this.repo.findActiveLocation(tenant.tenantId, locationId);
     if (!location) throw new NotFoundException('Bodega no encontrada o inactiva');

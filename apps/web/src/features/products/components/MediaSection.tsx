@@ -3,24 +3,19 @@
 import { MEDIA_ACCEPTED_TYPES, MEDIA_MAX_BYTES } from '@erp/contracts';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
-import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
 import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useRef, useState } from 'react';
 import { ApiError } from '@/lib/http';
 import { mediaSrc, uploadMedia } from '../api/media.api';
 import { useDragReorder } from '../variants/useDragReorder';
+import MediaViewerDialog from './MediaViewerDialog';
 
 export type MediaItem = { id: number; url: string; alt: string | null };
 
@@ -38,14 +33,16 @@ type Upload = { key: string; name: string };
 const ACCEPT = MEDIA_ACCEPTED_TYPES.join(',');
 let uploadCounter = 0;
 
-/** Multimedia del producto, como en Shopify: subir/arrastrar, la primera es la principal, reordenar, alt y quitar. */
+/**
+ * Multimedia del producto, como en Shopify: subir/arrastrar, la primera es la principal, reordenar y
+ * quitar. Al hacer clic en una imagen se abre el visor con su información (nombre, alt, detalles, uso).
+ */
 export default function MediaSection({ tenant, media, onChange, onAdd, disabled }: Props) {
   const input = useRef<HTMLInputElement>(null);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [dropping, setDropping] = useState(false);
-  const [editingAlt, setEditingAlt] = useState<MediaItem | null>(null);
-  const [altText, setAltText] = useState('');
+  const [viewing, setViewing] = useState<number | null>(null);
   const { itemProps } = useDragReorder(media, onChange);
 
   const upload = async (files: File[]) => {
@@ -173,23 +170,27 @@ export default function MediaSection({ tenant, media, onChange, onAdd, disabled 
                 src={mediaSrc(item.url)}
                 alt={item.alt ?? ''}
                 draggable={false}
-                sx={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+                role="button"
+                tabIndex={0}
+                aria-label={`Ver imagen ${index + 1}`}
+                onClick={() => setViewing(index)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setViewing(index);
+                  }
+                }}
+                sx={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  display: 'block',
+                  cursor: 'pointer',
+                  '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: -2 },
+                }}
               />
               {!disabled && (
                 <Stack direction="row" className="media-actions" sx={{ position: 'absolute', top: 4, right: 4, gap: 0.5, opacity: 0, transition: 'opacity 120ms' }}>
-                  <Tooltip title="Texto alternativo">
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        setAltText(item.alt ?? '');
-                        setEditingAlt(item);
-                      }}
-                      aria-label={`Texto alternativo de la imagen ${index + 1}`}
-                      sx={{ bgcolor: 'background.paper', '&:hover': { bgcolor: 'background.paper' }, boxShadow: 1 }}
-                    >
-                      <EditOutlinedIcon fontSize="inherit" />
-                    </IconButton>
-                  </Tooltip>
                   <Tooltip title="Quitar del producto">
                     <IconButton
                       size="small"
@@ -253,36 +254,19 @@ export default function MediaSection({ tenant, media, onChange, onAdd, disabled 
         </Alert>
       )}
 
-      <Dialog open={!!editingAlt} onClose={() => setEditingAlt(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Texto alternativo</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            fullWidth
-            multiline
-            minRows={2}
-            value={altText}
-            onChange={(e) => setAltText(e.target.value)}
-            helperText="Describe la imagen para lectores de pantalla y buscadores (ej. Polera roja vista de frente)."
-            slotProps={{ htmlInput: { maxLength: 512, 'aria-label': 'Texto alternativo' } }}
-            sx={{ mt: 1 }}
-          />
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button color="inherit" onClick={() => setEditingAlt(null)}>
-            Cancelar
-          </Button>
-          <Button
-            variant="contained"
-            onClick={() => {
-              if (editingAlt) onChange(media.map((m) => (m.id === editingAlt.id ? { ...m, alt: altText.trim() || null } : m)));
-              setEditingAlt(null);
-            }}
-          >
-            Listo
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {viewing !== null && media[viewing] && (
+        <MediaViewerDialog
+          tenant={tenant}
+          media={media}
+          index={viewing}
+          onIndexChange={setViewing}
+          onClose={() => setViewing(null)}
+          onAltChange={(id, alt) => onChange(media.map((m) => (m.id === id ? { ...m, alt } : m)))}
+          onRemove={(id) => onChange(media.filter((m) => m.id !== id))}
+          onMakeMain={(id) => onChange([...media.filter((m) => m.id === id), ...media.filter((m) => m.id !== id)])}
+          disabled={disabled}
+        />
+      )}
     </Box>
   );
 }
